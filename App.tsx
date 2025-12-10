@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ViewState, Dormitory, Student } from './types';
 import Dashboard from './components/Dashboard';
 import RoomGrid from './components/RoomGrid';
 import Assistant from './components/Assistant';
-import { LayoutDashboard, Building2, Sparkles, GraduationCap, Menu } from 'lucide-react';
+import { LayoutDashboard, Building2, Sparkles, GraduationCap, Menu, CheckCircle } from 'lucide-react';
+
+// Storage Key for LocalStorage
+const STORAGE_KEY = 'gdpi_dorm_data_v1';
 
 // Mock Data Helpers
 const MOCK_NAMES = [
@@ -85,24 +88,44 @@ const generateRooms = (roomCount: number, dormPrefix: number, totalStudentsToGen
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>(ViewState.DASHBOARD);
+  const [showToast, setShowToast] = useState(false);
   
-  // Initialize state with 2 dormitories.
-  // Requested: 100 rooms per dorm.
-  // Keeping 390 students per dorm (780 total) as per previous context.
-  const [dorms, setDorms] = useState<Dormitory[]>([
-    {
-      id: 1,
-      name: "1-Talabalar turar joyi",
-      totalRooms: 100,
-      rooms: generateRooms(100, 1, 390)
-    },
-    {
-      id: 2,
-      name: "2-Talabalar turar joyi",
-      totalRooms: 100,
-      rooms: generateRooms(100, 2, 390)
+  // Initialize state with lazy loading from LocalStorage
+  const [dorms, setDorms] = useState<Dormitory[]>(() => {
+    try {
+      const savedData = localStorage.getItem(STORAGE_KEY);
+      if (savedData) {
+        return JSON.parse(savedData);
+      }
+    } catch (error) {
+      console.error("Failed to load data from storage:", error);
     }
-  ]);
+
+    // Default Initialization if no storage data
+    return [
+      {
+        id: 1,
+        name: "1-Talabalar turar joyi",
+        totalRooms: 100,
+        rooms: generateRooms(100, 1, 390)
+      },
+      {
+        id: 2,
+        name: "2-Talabalar turar joyi",
+        totalRooms: 100,
+        rooms: generateRooms(100, 2, 390)
+      }
+    ];
+  });
+
+  // Save to LocalStorage whenever dorms state changes
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dorms));
+    // Show toast notification briefly on change
+    setShowToast(true);
+    const timer = setTimeout(() => setShowToast(false), 2000);
+    return () => clearTimeout(timer);
+  }, [dorms]);
 
   const updateRoom = (dormId: number, roomNumber: number, newStudent?: Student, removeId?: string) => {
     setDorms(currentDorms => currentDorms.map(dorm => {
@@ -167,23 +190,13 @@ const App: React.FC = () => {
           <SidebarItem viewState={ViewState.AI_ASSISTANT} icon={Sparkles} label="AI Yordamchi" />
         </nav>
         
-        <div className="p-6 m-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <div className="flex items-center space-x-3 text-sm text-slate-600 mb-4">
+        <div className="p-6 m-4 mt-auto bg-slate-50 rounded-2xl border border-slate-100">
+          <div className="flex items-center space-x-3 text-sm text-slate-600">
             <span className="relative flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
             </span>
             <span className="font-semibold">Tizim faol</span>
-          </div>
-          
-          <div className="pt-4 border-t border-slate-200">
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1">Dasturchi</p>
-            <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
-                    XM
-                </div>
-                <p className="text-sm font-bold text-slate-700">Xudayberdiyev Mansur</p>
-            </div>
           </div>
         </div>
       </div>
@@ -235,6 +248,14 @@ const App: React.FC = () => {
             {view === ViewState.AI_ASSISTANT && <Assistant dorms={dorms} />}
           </div>
         </main>
+
+        {/* Saved Toast Notification */}
+        {showToast && (
+            <div className="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-5 duration-300 z-50">
+                <CheckCircle size={20} className="text-emerald-400" />
+                <span className="font-medium text-sm">Ma'lumotlar avtomatik saqlandi</span>
+            </div>
+        )}
       </div>
     </div>
   );

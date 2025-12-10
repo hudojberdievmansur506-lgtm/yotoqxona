@@ -24,6 +24,7 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, onUpdateRoom }) =>
   const [newStudentCourse, setNewStudentCourse] = useState(1);
   const [newStudentGroup, setNewStudentGroup] = useState('');
   const [newStudentImage, setNewStudentImage] = useState<string>('');
+  const [isCompressing, setIsCompressing] = useState(false);
 
   const getRoomStyles = (count: number) => {
     if (count === 0) return {
@@ -49,12 +50,32 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, onUpdateRoom }) =>
     };
   };
 
+  // Image compression utility
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setIsCompressing(true);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewStudentImage(reader.result as string);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          // Create canvas for resizing
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 150; // Resize to max 150px width for avatars
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            // Convert to JPEG with 0.7 quality to save space in localStorage
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            setNewStudentImage(compressedDataUrl);
+            setIsCompressing(false);
+          }
+        };
       };
       reader.readAsDataURL(file);
     }
@@ -69,7 +90,6 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, onUpdateRoom }) =>
     }
 
     // DUPLICATE CHECK (Qayta kiritishni oldini olish)
-    // Ismni normallashtirish: ortiqcha bo'shliqlarni olib tashlash va kichik harflarga o'tkazish
     const normalizeName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
     const targetName = normalizeName(newStudentName);
 
@@ -262,7 +282,9 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, onUpdateRoom }) =>
                   <form onSubmit={handleAddStudent} className="space-y-4">
                     <div className="flex items-start gap-4">
                         <div className="relative group cursor-pointer w-20 h-20 rounded-xl bg-slate-50 border-2 border-dashed border-slate-300 flex items-center justify-center hover:bg-white hover:border-blue-400 transition-colors overflow-hidden flex-shrink-0">
-                            {newStudentImage ? (
+                            {isCompressing ? (
+                                <div className="text-xs text-blue-500 font-medium">Yuklanmoqda...</div>
+                            ) : newStudentImage ? (
                                 <img src={newStudentImage} alt="Preview" className="w-full h-full object-cover" />
                             ) : (
                                 <div className="text-center p-1">
@@ -366,10 +388,13 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, onUpdateRoom }) =>
                     
                     <button 
                         type="submit"
-                        className="w-full bg-blue-600 text-white py-2.5 rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 font-semibold flex items-center justify-center gap-2 mt-2"
+                        disabled={isCompressing}
+                        className={`w-full text-white py-2.5 rounded-xl transition-all shadow-lg font-semibold flex items-center justify-center gap-2 mt-2 ${
+                            isCompressing ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                        }`}
                     >
                         <CheckCircle size={18} />
-                        Saqlash
+                        {isCompressing ? 'Rasm yuklanmoqda...' : 'Saqlash'}
                     </button>
                   </form>
                 </div>

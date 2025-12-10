@@ -531,9 +531,9 @@ const Dashboard: React.FC<DashboardProps> = ({ dorms }) => {
         </div>
 
         {searchTerm.length > 1 && (
-            <div className="p-8 bg-slate-50/50">
+            <div className="p-8 bg-slate-50/50 animate-in fade-in duration-300">
                 {searchResults.length === 0 ? (
-                    <div className="text-center py-12">
+                    <div className="text-center py-12 animate-in fade-in zoom-in-95 duration-300">
                         <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
                             <Search className="text-slate-400" size={32} />
                         </div>
@@ -543,7 +543,11 @@ const Dashboard: React.FC<DashboardProps> = ({ dorms }) => {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {searchResults.map((item, idx) => (
-                            <div key={idx} className="flex items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-lg hover:shadow-blue-100 transition-all group">
+                            <div 
+                                key={idx} 
+                                className="flex items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-lg hover:shadow-blue-100 transition-all group animate-in fade-in slide-in-from-bottom-4 duration-500"
+                                style={{ animationDelay: `${idx * 75}ms`, animationFillMode: 'both' }}
+                            >
                                 <div className="w-16 h-16 rounded-full bg-blue-50 overflow-hidden flex-shrink-0 border-2 border-white shadow-sm group-hover:scale-105 transition-transform">
                                     <img src={item.student.imageUrl} alt={item.student.fullName} className="w-full h-full object-cover" />
                                 </div>
