@@ -1,402 +1,406 @@
+
 import React, { useState } from 'react';
 import { Room, Student } from '../types';
-import { Users, UserPlus, X, Upload, Image as ImageIcon, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Users, UserPlus, X, Search, CheckCircle, Clock, Building2, Trash2, Info, FileSpreadsheet, AlertCircle, Loader2, UserPen, Fingerprint, CreditCard, Hash, ShieldCheck } from 'lucide-react';
 
 interface RoomGridProps {
   rooms: Room[];
   dormName: string;
+  isGuest?: boolean;
   onUpdateRoom: (roomNumber: number, newStudent?: Student, removeId?: string) => void;
+  allDorms?: any[];
 }
 
-const FACULTIES_DATA: Record<string, string[]> = {
-  'Gumanitar fanlar va jismoniy madaniyat': ['Tasviriy san\'at', 'Musiqa ta\'limi', 'Milliy g\'oya', 'Tarix', 'Jismoniy madaniyat'],
-  'Pedagogika': ['Pedagogika', 'Maktabgacha ta\'lim', 'Boshlang\'ich ta\'lim'],
-  'Aniq va tabiiy fanlar': ['Matematika va Informatika', 'Fizika va astronomiya', 'Kimyo', 'Biologiya', 'Geografiya va iqtisodiy bilim asoslari', 'Texnologik ta\'lim', 'Matematika', 'Amaliy matematika'],
-  'Tillarni o\'qitish fakulteti': ['O\'zbek tili va adabiyoti', 'Ona tili va adabiyoti( qozoq tili)', 'Ona tili va adabiyoti (rus tili)', 'Xorijiy til va adabiyoti(ingiliz tili)'],
-};
-
-const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, onUpdateRoom }) => {
+const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateRoom, allDorms }) => {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
-  const [newStudentName, setNewStudentName] = useState('');
-  const [newStudentFaculty, setNewStudentFaculty] = useState('');
-  const [newStudentDirection, setNewStudentDirection] = useState('');
-  const [customDirection, setCustomDirection] = useState('');
-  const [newStudentCourse, setNewStudentCourse] = useState(1);
-  const [newStudentGroup, setNewStudentGroup] = useState('');
-  const [newStudentImage, setNewStudentImage] = useState<string>('');
-  const [isCompressing, setIsCompressing] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [foundStudent, setFoundStudent] = useState<any>(null);
+  const [error, setError] = useState('');
+  const [isManualMode, setIsManualMode] = useState(false);
 
-  const getRoomStyles = (count: number) => {
-    if (count === 0) return {
-        bg: 'bg-emerald-50',
-        border: 'border-emerald-300',
-        badge: 'bg-emerald-200 text-emerald-800',
-        badgeText: 'Bo\'sh',
-        hover: 'hover:shadow-emerald-200 hover:border-emerald-500'
-    };
-    if (count < 4) return {
-        bg: 'bg-amber-50',
-        border: 'border-amber-300',
-        badge: 'bg-amber-200 text-amber-800',
-        badgeText: 'Band',
-        hover: 'hover:shadow-amber-200 hover:border-amber-500'
-    };
-    return {
-        bg: 'bg-rose-100',
-        border: 'border-rose-300',
-        badge: 'bg-rose-200 text-rose-900',
-        badgeText: 'To\'la',
-        hover: 'hover:shadow-rose-200 hover:border-rose-500'
-    };
-  };
+  // Search form state
+  const [searchIdentity, setSearchIdentity] = useState({
+    passportSeries: '',
+    passportNumber: '',
+    jshir: ''
+  });
 
-  // Image compression utility
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setIsCompressing(true);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          // Create canvas for resizing
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 150; // Resize to max 150px width for avatars
-          const scaleSize = MAX_WIDTH / img.width;
-          canvas.width = MAX_WIDTH;
-          canvas.height = img.height * scaleSize;
+  // Manual form state
+  const [manualStudent, setManualStudent] = useState({
+    fullName: '',
+    group: '',
+    course: '1',
+    faculty: ''
+  });
 
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            // Convert to JPEG with 0.7 quality to save space in localStorage
-            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            setNewStudentImage(compressedDataUrl);
-            setIsCompressing(false);
-          }
-        };
-      };
-      reader.readAsDataURL(file);
+  const searchFromHemis = async () => {
+    const { passportSeries, passportNumber, jshir } = searchIdentity;
+    
+    if (!passportSeries.trim() || !passportNumber.trim() || !jshir.trim()) {
+      setError("Iltimos, aniq izlash uchun barcha maydonlarni (Seriya, Raqam va JSHIR) to'liq kiriting");
+      return;
+    }
+    
+    setSearching(true);
+    setError('');
+    setFoundStudent(null);
+    setIsManualMode(false);
+
+    try {
+      const params = new URLSearchParams();
+      params.append('passport_series', passportSeries.trim().toUpperCase());
+      params.append('passport_number', passportNumber.trim());
+      params.append('passport_pin', jshir.trim());
+
+      const url = `https://student.gspi.uz/rest/v1/data/student-list?${params.toString()}`;
+
+      // We use a direct fetch. If it fails with 'Failed to fetch', it's almost certainly CORS.
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json',
+          'Authorization': 'Bearer 3wDM12YjwzLS94R1B_eIsvBu1f7MIPwI'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const items = data?.data?.items || [];
+      
+      // Since there are 7,234 students, we verify the specific match manually from results
+      const studentData = items.find((item: any) => 
+        String(item.passport_pin) === String(jshir.trim())
+      ) || items[0]; 
+
+      if (!studentData) {
+        setError("Ushbu ma'lumotlar bilan talaba topilmadi. Ma'lumotlarni tekshiring.");
+      } else {
+        checkAndSetStudent(studentData);
+      }
+    } catch (err: any) {
+      console.error("HEMIS API Error Details:", err);
+      
+      if (err.message === 'Failed to fetch') {
+        setError("HEMIS serveriga to'g'ridan-to'g'ri bog'lanish bloklandi (CORS xatoligi). Bu brauzer xavfsizlik cheklovi hisoblanadi. Iltimos, talabani qo'lda qo'shish variantidan foydalaning.");
+      } else {
+        setError("Tizimda nosozlik yuz berdi. Ma'lumotlarni qo'lda kiritishingiz mumkin.");
+      }
+    } finally {
+      setSearching(false);
     }
   };
 
-  const handleAddStudent = (e: React.FormEvent) => {
-    e.preventDefault();
+  const checkAndSetStudent = (studentData: any) => {
+    let exists = false;
+    const studentId = studentData.student_id || studentData.id;
+
+    if (allDorms) {
+      for (const d of allDorms) {
+        for (const r of d.rooms) {
+          if (r.students.find((s: Student) => String(s.hemisId) === String(studentId))) {
+            exists = true;
+            break;
+          }
+        }
+        if (exists) break;
+      }
+    }
+
+    if (exists) {
+      setError("Ushbu talaba allaqachon yotoqxona tizimida mavjud!");
+    } else {
+      setFoundStudent(studentData);
+    }
+  };
+
+  const handleAddRequest = () => {
     if (!selectedRoom) return;
-    if (selectedRoom.students.length >= 4) {
-      alert("Xona to'la!");
+
+    let newStudent: Student;
+
+    if (foundStudent) {
+      newStudent = {
+        id: Math.random().toString(36).substr(2, 9),
+        hemisId: String(foundStudent.student_id || foundStudent.id),
+        fullName: foundStudent.full_name || foundStudent.fullName,
+        faculty: foundStudent.faculty?.name || foundStudent.faculty || 'Noma\'lum',
+        direction: foundStudent.specialty?.name || foundStudent.specialty || 'Noma\'lum',
+        course: Number(foundStudent.level?.code || foundStudent.level || 1),
+        group: foundStudent.group?.name || foundStudent.group || 'Noma\'lum',
+        imageUrl: foundStudent.image || foundStudent.imageUrl || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.student_id || foundStudent.id}`,
+        joinedDate: new Date().toLocaleString(),
+      };
+    } else if (isManualMode) {
+      if (!manualStudent.fullName || !manualStudent.group) {
+        setError("Talaba ismi va guruhi majburiy!");
+        return;
+      }
+      newStudent = {
+        id: Math.random().toString(36).substr(2, 9),
+        hemisId: searchIdentity.jshir || 'M-' + Date.now(),
+        fullName: manualStudent.fullName,
+        faculty: manualStudent.faculty || 'Noma\'lum',
+        direction: 'Qo\'lda kiritilgan',
+        course: Number(manualStudent.course),
+        group: manualStudent.group,
+        imageUrl: `https://api.dicebear.com/9.x/avataaars/png?seed=${manualStudent.fullName}`,
+        joinedDate: new Date().toLocaleString(),
+      };
+    } else {
       return;
     }
 
-    // DUPLICATE CHECK (Qayta kiritishni oldini olish)
-    const normalizeName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
-    const targetName = normalizeName(newStudentName);
-
-    const existingRoom = rooms.find(room => 
-        room.students.some(student => normalizeName(student.fullName) === targetName)
-    );
-
-    if (existingRoom) {
-        alert(`Bu talaba mavjud! "${newStudentName}" allaqachon ${existingRoom.number}-xonaga biriktirilgan.`);
-        return;
-    }
-
-    const finalDirection = newStudentDirection === 'Boshqa' ? customDirection : newStudentDirection;
-    if (!finalDirection.trim() || !newStudentGroup.trim()) {
-        alert("Iltimos, barcha maydonlarni to'ldiring.");
-        return;
-    }
-
-    const newStudent: Student = {
-      id: Math.random().toString(36).substr(2, 9),
-      fullName: newStudentName.trim(), // Save trimmed name
-      faculty: newStudentFaculty,
-      direction: finalDirection,
-      course: newStudentCourse,
-      group: newStudentGroup,
-      imageUrl: newStudentImage || `https://api.dicebear.com/9.x/avataaars/png?seed=${Math.random()}`,
-      joinedDate: new Date().toISOString().split('T')[0],
-    };
-
     onUpdateRoom(selectedRoom.number, newStudent);
-    
-    // Reset form
-    setNewStudentName('');
-    setNewStudentFaculty('');
-    setNewStudentDirection('');
-    setCustomDirection('');
-    setNewStudentImage('');
-    setNewStudentCourse(1);
-    setNewStudentGroup('');
-    
-    setSelectedRoom({
-        ...selectedRoom,
-        students: [...selectedRoom.students, newStudent]
-    });
+    resetState();
   };
 
-  const handleRemoveStudent = (studentId: string) => {
-    if (!selectedRoom) return;
-    onUpdateRoom(selectedRoom.number, undefined, studentId);
-    setSelectedRoom({
-        ...selectedRoom,
-        students: selectedRoom.students.filter(s => s.id !== studentId)
+  const resetState = () => {
+    setFoundStudent(null);
+    setSearchIdentity({ passportSeries: '', passportNumber: '', jshir: '' });
+    setSelectedRoom(null);
+    setError('');
+    setIsManualMode(false);
+    setManualStudent({ fullName: '', group: '', course: '1', faculty: '' });
+  };
+
+  const exportDormToExcel = async () => {
+    // @ts-ignore
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(dormName);
+    worksheet.columns = [
+      { header: 'Xona №', key: 'room', width: 10 },
+      { header: 'HEMIS ID', key: 'hemisId', width: 15 },
+      { header: 'F.I.SH', key: 'name', width: 30 },
+      { header: 'Kurs', key: 'course', width: 10 },
+      { header: 'Guruh', key: 'group', width: 15 },
+      { header: 'Fakultet', key: 'faculty', width: 30 },
+      { header: 'Yo\'nalish', key: 'direction', width: 30 },
+      { header: 'Kirgan sana', key: 'date', width: 20 },
+    ];
+
+    rooms.forEach(room => {
+      if (room.students.length > 0) {
+        room.students.forEach(s => {
+          worksheet.addRow({
+            room: room.number,
+            hemisId: s.hemisId,
+            name: s.fullName,
+            course: s.course,
+            group: s.group,
+            faculty: s.faculty,
+            direction: s.direction,
+            date: s.joinedDate
+          });
+        });
+      } else {
+        worksheet.addRow({ room: room.number, name: 'BO\'SH' });
+      }
     });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${dormName.replace(/\s+/g, '_')}_Hisoboti.xlsx`;
+    anchor.click();
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-            <span className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Users size={24} /></span>
-            {dormName}
-          </h2>
-          
-          <div className="flex gap-4 text-sm font-medium">
-            <div className="flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-800">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Bo'sh
-            </div>
-            <div className="flex items-center gap-2 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Band
-            </div>
-            <div className="flex items-center gap-2 bg-rose-100 px-3 py-1.5 rounded-lg border border-rose-300 text-rose-800">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span> To'la
-            </div>
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="flex flex-col md:flex-row items-center gap-4">
+          <h2 className="text-xl font-black tracking-tight flex items-center gap-3"><Building2 className="text-blue-600"/> {dormName}</h2>
+          <div className="flex flex-wrap justify-center gap-4 border-l border-slate-100 pl-4">
+              <span className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> BO'SH</span>
+              <span className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest"><span className="w-2 h-2 rounded-full bg-amber-500"></span> QISMAN</span>
+              <span className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest"><span className="w-2 h-2 rounded-full bg-rose-500"></span> TO'LA</span>
           </div>
+        </div>
+        {!isGuest && (
+          <button onClick={exportDormToExcel} className="bg-emerald-50 text-emerald-600 px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-600 hover:text-white transition-all shadow-sm border border-emerald-100">
+            <FileSpreadsheet size={16}/> Bino hisoboti (Excel)
+          </button>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-        {rooms.map((room) => {
-          const styles = getRoomStyles(room.students.length);
-          return (
-            <button
-                key={room.number}
-                onClick={() => setSelectedRoom(room)}
-                className={`relative group p-4 rounded-xl border ${styles.border} ${styles.bg} transition-all duration-200 hover:shadow-lg ${styles.hover} flex flex-col items-center justify-between h-28`}
-            >
-                <div className="absolute top-0 right-0 p-1.5">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${styles.badge}`}>
-                        {room.students.length}/4
-                    </span>
-                </div>
-                <span className="font-bold text-2xl text-slate-700 mt-2">{room.number}</span>
-                <div className="flex -space-x-2 pb-1 pl-1">
-                    {room.students.map((student) => (
-                        <div key={student.id} className="relative group/avatar hover:z-20 transition-all">
-                             <div className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[8px] text-slate-500 overflow-hidden shadow-sm">
-                                {student.imageUrl ? (
-                                    <img src={student.imageUrl} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                    <Users size={12} className="text-slate-400" />
-                                )}
-                             </div>
-                             
-                             {/* Tooltip on Hover */}
-                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/avatar:block z-50 w-max max-w-[150px] px-3 py-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 pointer-events-none">
-                                 <p className="font-bold truncate">{student.fullName}</p>
-                                 <div className="flex gap-1 mt-0.5 text-[9px] text-slate-300">
-                                    <span>{student.course}-kurs</span>
-                                    <span>•</span>
-                                    <span>{student.group}</span>
-                                 </div>
-                                 <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-slate-800"></div>
-                             </div>
-                        </div>
-                    ))}
-                    {Array.from({ length: 4 - room.students.length }).map((_, i) => (
-                        <div key={`empty-${i}`} className="w-6 h-6 rounded-full border-2 border-dashed border-slate-300/50"></div>
-                    ))}
-                </div>
-            </button>
-          )
-        })}
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-8 xl:grid-cols-10 gap-3">
+        {rooms.map((room) => (
+          <button
+            key={room.number}
+            onClick={() => { resetState(); setSelectedRoom(room); }}
+            className={`h-28 p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 active:scale-95 ${
+                room.students.length === 0 ? 'bg-white border-slate-100 hover:border-emerald-400' :
+                room.students.length === 4 ? 'bg-rose-50 border-rose-100 hover:border-rose-400' :
+                'bg-amber-50 border-amber-100 hover:border-amber-400'
+            }`}
+          >
+            <span className="font-black text-2xl text-slate-800">{room.number}</span>
+            <div className="flex -space-x-1.5">
+                {room.students.map(s => <div key={s.id} className="w-5 h-5 rounded-full border border-white bg-slate-200 overflow-hidden shadow-sm"><img src={s.imageUrl} className="w-full h-full object-cover"/></div>)}
+                {Array.from({length: 4 - room.students.length}).map((_, i) => <div key={i} className="w-5 h-5 rounded-full border border-dashed border-slate-300"></div>)}
+            </div>
+          </button>
+        ))}
       </div>
 
-      {/* Room Details Modal */}
       {selectedRoom && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="p-8 bg-slate-50 border-b flex justify-between items-center">
               <div>
-                  <h3 className="text-xl font-bold text-slate-800">Xona №{selectedRoom.number}</h3>
-                  <p className="text-sm text-slate-500">Talabalar ro'yxati va boshqaruv</p>
+                <h3 className="font-black text-2xl text-slate-800">Xona №{selectedRoom.number}</h3>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{selectedRoom.students.length} / 4 o'rin band</p>
               </div>
-              <button 
-                onClick={() => setSelectedRoom(null)} 
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-rose-500 transition-colors"
-              >
-                <X size={20} />
-              </button>
+              <button onClick={() => setSelectedRoom(null)} className="p-2 bg-white rounded-full shadow-sm hover:bg-slate-100 transition-colors"><X size={24}/></button>
             </div>
             
-            <div className="p-6 overflow-y-auto custom-scrollbar">
-              <h4 className="font-bold text-slate-700 mb-4 flex items-center justify-between">
-                <span>Yashovchilar</span>
-                <span className={`text-xs px-2 py-1 rounded-full ${selectedRoom.students.length === 4 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {selectedRoom.students.length} / 4 o'rin band
-                </span>
-              </h4>
-              
-              {selectedRoom.students.length === 0 ? (
-                <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 mb-6">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                        <Users className="text-slate-400" size={24} />
+            <div className="p-8 space-y-4 max-h-[70vh] overflow-y-auto">
+              {selectedRoom.students.map(s => (
+                <div key={s.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center gap-4">
+                    <img src={s.imageUrl} className="w-12 h-12 rounded-full border border-slate-100 object-cover"/>
+                    <div className="text-left">
+                      <p className="text-sm font-black text-slate-800">{s.fullName}</p>
+                      <p className="text-[10px] text-blue-600 uppercase font-black tracking-widest">{s.group} • ID: {s.hemisId}</p>
                     </div>
-                    <p className="text-slate-500 font-medium">Bu xona hozircha bo'sh.</p>
-                </div>
-              ) : (
-                <ul className="space-y-3 mb-8">
-                  {selectedRoom.students.map((student) => (
-                    <li key={student.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm hover:border-blue-200 transition-colors group">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden flex-shrink-0 border border-slate-200">
-                            <img src={student.imageUrl} alt={student.fullName} className="w-full h-full object-cover" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-800 text-sm">{student.fullName}</p>
-                          <div className="flex flex-wrap gap-1 mt-0.5">
-                             <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{student.course}-kurs</span>
-                             <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{student.group}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => handleRemoveStudent(student.id)}
-                        className="opacity-0 group-hover:opacity-100 text-rose-500 hover:bg-rose-50 p-2 rounded-lg transition-all"
-                        title="Chiqarish"
-                      >
-                        <X size={16} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {selectedRoom.students.length < 4 && (
-                <div className="border-t border-slate-100 pt-6">
-                  <h4 className="font-bold mb-4 text-blue-600 flex items-center">
-                    <UserPlus size={18} className="mr-2" />
-                    Yangi talaba qo'shish
-                  </h4>
-                  <form onSubmit={handleAddStudent} className="space-y-4">
-                    <div className="flex items-start gap-4">
-                        <div className="relative group cursor-pointer w-20 h-20 rounded-xl bg-slate-50 border-2 border-dashed border-slate-300 flex items-center justify-center hover:bg-white hover:border-blue-400 transition-colors overflow-hidden flex-shrink-0">
-                            {isCompressing ? (
-                                <div className="text-xs text-blue-500 font-medium">Yuklanmoqda...</div>
-                            ) : newStudentImage ? (
-                                <img src={newStudentImage} alt="Preview" className="w-full h-full object-cover" />
-                            ) : (
-                                <div className="text-center p-1">
-                                    <ImageIcon className="text-slate-400 mx-auto mb-1" size={20} />
-                                    <span className="text-[10px] text-slate-400 leading-tight block">Rasm yuklash</span>
-                                </div>
-                            )}
-                            <input 
-                                type="file" 
-                                accept="image/*"
-                                onChange={handleImageChange}
-                                className="absolute inset-0 opacity-0 cursor-pointer"
-                            />
-                        </div>
-                        <div className="flex-1 space-y-3">
-                            <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">F.I.SH</label>
-                                <input
-                                    required
-                                    type="text"
-                                    placeholder="Ism Familiya Sharif"
-                                    value={newStudentName}
-                                    onChange={(e) => setNewStudentName(e.target.value)}
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                                />
-                            </div>
-                             <div className="flex gap-3">
-                                <div className="w-1/2">
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Kurs</label>
-                                    <select
-                                        value={newStudentCourse}
-                                        onChange={(e) => setNewStudentCourse(Number(e.target.value))}
-                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                                    >
-                                        {[1, 2, 3, 4].map(c => <option key={c} value={c}>{c}-kurs</option>)}
-                                    </select>
-                                </div>
-                                <div className="w-1/2">
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Guruh</label>
-                                    <input
-                                        required
-                                        type="text"
-                                        placeholder="101"
-                                        value={newStudentGroup}
-                                        onChange={(e) => setNewStudentGroup(e.target.value)}
-                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                                    />
-                                </div>
-                             </div>
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 gap-3">
-                        <div>
-                             <label className="block text-xs font-medium text-slate-500 mb-1">Fakultet</label>
-                            <select
-                                required
-                                value={newStudentFaculty}
-                                onChange={(e) => {
-                                    setNewStudentFaculty(e.target.value);
-                                    setNewStudentDirection('');
-                                }}
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                            >
-                                <option value="">Tanlang...</option>
-                                {Object.keys(FACULTIES_DATA).map(f => (
-                                    <option key={f} value={f}>{f}</option>
-                                ))}
-                            </select>
-                        </div>
-                        
-                        {newStudentFaculty && (
-                            <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Yo'nalish</label>
-                                <select
-                                    required
-                                    value={newStudentDirection}
-                                    onChange={(e) => setNewStudentDirection(e.target.value)}
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                                >
-                                    <option value="">Tanlang...</option>
-                                    {FACULTIES_DATA[newStudentFaculty].map(d => (
-                                        <option key={d} value={d}>{d}</option>
-                                    ))}
-                                    <option value="Boshqa">Boshqa...</option>
-                                </select>
-                            </div>
-                        )}
-                        
-                        {newStudentDirection === 'Boshqa' && (
-                            <input
-                                required
-                                type="text"
-                                placeholder="Yo'nalish nomini kiriting"
-                                value={customDirection}
-                                onChange={(e) => setCustomDirection(e.target.value)}
-                                className="w-full border border-blue-200 bg-blue-50 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                            />
-                        )}
-                    </div>
-                    
-                    <button 
-                        type="submit"
-                        disabled={isCompressing}
-                        className={`w-full text-white py-2.5 rounded-xl transition-all shadow-lg font-semibold flex items-center justify-center gap-2 mt-2 ${
-                            isCompressing ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
-                        }`}
-                    >
-                        <CheckCircle size={18} />
-                        {isCompressing ? 'Rasm yuklanmoqda...' : 'Saqlash'}
+                  </div>
+                  {!isGuest && (
+                    <button onClick={() => { onUpdateRoom(selectedRoom.number, undefined, s.id); setSelectedRoom(null); }} className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-xl">
+                      <Trash2 size={18}/>
                     </button>
-                  </form>
+                  )}
+                </div>
+              ))}
+
+              {!isGuest && selectedRoom.students.length < 4 && (
+                <div className="mt-6 pt-6 border-t border-slate-100">
+                  {!isManualMode ? (
+                    <>
+                      <h4 className="font-black text-[10px] text-blue-600 uppercase mb-4 tracking-widest flex items-center gap-2">
+                        <ShieldCheck size={16}/> HEMIS BAZASIDAN QIDIRUV
+                      </h4>
+                      
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-3 gap-2">
+                             <input 
+                                placeholder="Seriya" 
+                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold text-center uppercase"
+                                maxLength={2}
+                                value={searchIdentity.passportSeries}
+                                onChange={e => setSearchIdentity({...searchIdentity, passportSeries: e.target.value.toUpperCase()})}
+                              />
+                              <input 
+                                placeholder="Pasport raqami" 
+                                className="col-span-2 w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold"
+                                maxLength={7}
+                                value={searchIdentity.passportNumber}
+                                onChange={e => setSearchIdentity({...searchIdentity, passportNumber: e.target.value.replace(/\D/g, '')})}
+                              />
+                        </div>
+                        <input 
+                          placeholder="JSHIR (PINFL - 14 ta raqam)" 
+                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold"
+                          maxLength={14}
+                          value={searchIdentity.jshir}
+                          onChange={e => setSearchIdentity({...searchIdentity, jshir: e.target.value.replace(/\D/g, '')})}
+                        />
+
+                        <button 
+                          onClick={searchFromHemis}
+                          disabled={searching}
+                          className="w-full bg-blue-600 text-white py-4 rounded-2xl hover:bg-blue-700 disabled:opacity-50 transition-all font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"
+                        >
+                          {searching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                          IZLASH (7,234 TA TALABA ICHIDAN)
+                        </button>
+                      </div>
+
+                      {error && (
+                        <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl mt-4 animate-shake text-left">
+                           <div className="flex items-start gap-2 text-rose-600 text-[10px] font-black mb-3">
+                            <AlertCircle size={14} className="mt-0.5 flex-shrink-0" /> <span>{error}</span>
+                           </div>
+                           <button 
+                             onClick={() => { setIsManualMode(true); setError(''); }}
+                             className="w-full py-2.5 bg-white border border-rose-200 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-50 transition-colors flex items-center justify-center gap-2"
+                           >
+                             <UserPen size={14} /> Ma'lumotlarni qo'lda kiritish
+                           </button>
+                        </div>
+                      )}
+
+                      {foundStudent && (
+                        <div className="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2 text-left">
+                          <div className="flex items-center gap-3 mb-4">
+                            <img src={foundStudent.image || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.id}`} className="w-14 h-14 rounded-xl border bg-white object-cover"/>
+                            <div>
+                              <p className="font-black text-slate-800 text-sm leading-tight uppercase">{foundStudent.full_name || foundStudent.fullName}</p>
+                              <p className="text-[9px] text-blue-600 font-black mt-1 uppercase">Guruh: {foundStudent.group?.name || foundStudent.group}</p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={handleAddRequest}
+                            className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs hover:bg-emerald-600 flex items-center justify-center gap-2 transition-all shadow-md"
+                          >
+                            <CheckCircle size={18}/> TALABANI TASDIQLASH
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="space-y-4 animate-in slide-in-from-right-4 text-left">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-black text-[10px] text-amber-600 uppercase tracking-widest flex items-center gap-2">
+                          <UserPen size={16}/> QO'LDA KIRITISH
+                        </h4>
+                        <button onClick={() => setIsManualMode(false)} className="text-[10px] font-black text-slate-400 hover:text-slate-600 underline">Qidiruvga qaytish</button>
+                      </div>
+                      
+                      <input 
+                        placeholder="Talaba F.I.SH" 
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm"
+                        value={manualStudent.fullName}
+                        onChange={e => setManualStudent({...manualStudent, fullName: e.target.value})}
+                      />
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <input 
+                          placeholder="Guruh (Masalan: 101)" 
+                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm"
+                          value={manualStudent.group}
+                          onChange={e => setManualStudent({...manualStudent, group: e.target.value})}
+                        />
+                        <select 
+                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm appearance-none"
+                          value={manualStudent.course}
+                          onChange={e => setManualStudent({...manualStudent, course: e.target.value})}
+                        >
+                          <option value="1">1-kurs</option>
+                          <option value="2">2-kurs</option>
+                          <option value="3">3-kurs</option>
+                          <option value="4">4-kurs</option>
+                        </select>
+                      </div>
+
+                      <input 
+                        placeholder="Fakultet nomi" 
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm"
+                        value={manualStudent.faculty}
+                        onChange={e => setManualStudent({...manualStudent, faculty: e.target.value})}
+                      />
+
+                      <button 
+                        onClick={handleAddRequest}
+                        className="w-full py-4 bg-amber-500 text-white rounded-2xl font-black text-xs hover:bg-amber-600 shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                      >
+                        <CheckCircle size={18}/> RO'YXATGA QO'SHISH
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

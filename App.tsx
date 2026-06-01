@@ -1,262 +1,456 @@
 import React, { useState, useEffect } from 'react';
-import { ViewState, Dormitory, Student } from './types';
+import { ViewState, Dormitory, Student, UserRole, AdminRequest, ArchivedStudent } from './types';
 import Dashboard from './components/Dashboard';
 import RoomGrid from './components/RoomGrid';
 import Assistant from './components/Assistant';
-import { LayoutDashboard, Building2, Sparkles, GraduationCap, Menu, CheckCircle } from 'lucide-react';
+import { 
+  LayoutDashboard, Building2, Sparkles, GraduationCap, 
+  CheckCircle, LogOut, ShieldCheck, Bell, History, Inbox, XCircle, MessageSquare, Lock, Calendar, Clock, Mail
+} from 'lucide-react';
 
-// Storage Key for LocalStorage
-const STORAGE_KEY = 'gdpi_dorm_data_v1';
+const STORAGE_KEY = 'gdpi_dorm_system_v2';
 
-// Mock Data Helpers
-const MOCK_NAMES = [
-  'Aziz', 'Bekzod', 'Sardor', 'Malika', 'Dildora', 'Otabek', 'Jasur', 'Madina', 'Shahlo', 'Nodir', 
-  'Jamshid', 'Sevara', 'Guli', 'Bobur', 'Dilshod', 'Lola', 'Farhod', 'Ravshan', 'Zarina', 'Umida',
-  'Javohir', 'Shohruh', 'Nigora', 'Barno', 'Sherzod', 'Davron', 'Kamola', 'Laylo', 'Sanjar', 'Akmal',
-  'Alisher', 'Botir', 'Dilnoza', 'Feruza', 'Gulnoza', 'Husan', 'Hasan', 'Iroda', 'Jalol', 'Komil'
-];
-
-const MOCK_SURNAMES = [
-  'Karimov', 'Rahimov', 'Abdullayev', 'Yusupov', 'Umarov', 'Aliyev', 'Nazarov', 'Rustamov', 'Ismoilov', 
-  'Qodirov', 'Ahmedov', 'Saidov', 'Sharipov', 'Zakirov', 'Tursunov', 'Boboyev', 'Mirzayev', 'Oripov', 
-  'Sultonov', 'Xoliqov', 'Rasulov', 'Sobirov', 'Toshpo\'latov', 'Ergashev', 'Yo\'ldoshev',
-  'Norboyev', 'Olimov', 'Pulatov', 'Qosimov', 'Rajabov', 'Safarov', 'Temirov', 'Usmonov', 'Valiyev'
-];
-
-const getRandomName = () => {
-  const name = MOCK_NAMES[Math.floor(Math.random() * MOCK_NAMES.length)];
-  const surname = MOCK_SURNAMES[Math.floor(Math.random() * MOCK_SURNAMES.length)];
-  return `${surname} ${name}`;
-};
-
-// Helper to generate initial rooms with exactly the requested number of students
-const generateRooms = (roomCount: number, dormPrefix: number, totalStudentsToGenerate: number) => {
-  // 1. Initialize empty rooms
-  const rooms = Array.from({ length: roomCount }, (_, i) => ({
-    number: i + 1,
-    capacity: 4,
-    students: [] as Student[]
-  }));
-
-  const facultiesData: Record<string, string[]> = {
-      'Pedagogika': ['Pedagogika', 'Maktabgacha ta\'lim', 'Boshlang\'ich ta\'lim'],
-      'Aniq va tabiiy fanlar': ['Matematika va Informatika', 'Fizika va astronomiya', 'Kimyo', 'Biologiya', 'Geografiya va iqtisodiy bilim asoslari', 'Texnologik ta\'lim', 'Matematika', 'Amaliy matematika'],
-      'Tillarni o\'qitish fakulteti': ['O\'zbek tili va adabiyoti', 'Ona tili va adabiyoti( qozoq tili)', 'Ona tili va adabiyoti (rus tili)', 'Xorijiy til va adabiyoti(ingiliz tili)'],
-      'Gumanitar fanlar va jismoniy madaniyat': ['Tasviriy san\'at', 'Musiqa ta\'limi', 'Milliy g\'oya', 'Tarix', 'Jismoniy madaniyat']
-  };
-  
-  const faculties = Object.keys(facultiesData);
-  let studentsAdded = 0;
-  
-  // Create a list of available room indices to avoid infinite loops when rooms get full
-  let availableRoomIndices = Array.from({ length: roomCount }, (_, i) => i);
-
-  // 2. Distribute students using available indices
-  while (studentsAdded < totalStudentsToGenerate && availableRoomIndices.length > 0) {
-    // Pick a random room from the AVAILABLE list
-    const randomListIndex = Math.floor(Math.random() * availableRoomIndices.length);
-    const roomIndex = availableRoomIndices[randomListIndex];
-    const room = rooms[roomIndex];
-
-    const faculty = faculties[Math.floor(Math.random() * faculties.length)];
-    const availableDirections = facultiesData[faculty];
-    const direction = availableDirections[Math.floor(Math.random() * availableDirections.length)];
-    const course = Math.floor(Math.random() * 4) + 1;
-
-    const student: Student = {
-      id: `d${dormPrefix}-s${studentsAdded + 1000}`, // Ensure unique IDs
-      fullName: getRandomName(),
-      course: course,
-      group: `${course}0${Math.floor(Math.random() * 5) + 1}`,
-      faculty: faculty,
-      direction: direction,
-      imageUrl: `https://api.dicebear.com/9.x/avataaars/png?seed=${dormPrefix}-${studentsAdded}-${Math.random()}`,
-      joinedDate: '2023-09-01'
-    };
-
-    room.students.push(student);
-    studentsAdded++;
-
-    // If room is full, remove it from available indices so we don't pick it again
-    if (room.students.length >= 4) {
-        availableRoomIndices.splice(randomListIndex, 1);
-    }
-  }
-
-  return rooms;
+const ADMIN_CREDENTIALS: Record<string, string> = {
+  'SUPER_ADMIN': 'admin777',
+  'DORM1_ADMIN': 'ttj1_pass',
+  'DORM2_ADMIN': 'ttj2_pass'
 };
 
 const App: React.FC = () => {
-  const [view, setView] = useState<ViewState>(ViewState.DASHBOARD);
+  const [currentUser, setCurrentUser] = useState<UserRole | null>(null);
+  const [view, setView] = useState<ViewState>(ViewState.LOGIN);
   const [showToast, setShowToast] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
   
-  // Initialize state with lazy loading from LocalStorage
-  const [dorms, setDorms] = useState<Dormitory[]>(() => {
-    try {
-      const savedData = localStorage.getItem(STORAGE_KEY);
-      if (savedData) {
-        return JSON.parse(savedData);
-      }
-    } catch (error) {
-      console.error("Failed to load data from storage:", error);
-    }
+  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
 
-    // Default Initialization if no storage data
-    return [
-      {
-        id: 1,
-        name: "1-Talabalar turar joyi",
-        totalRooms: 100,
-        rooms: generateRooms(100, 1, 390)
-      },
-      {
-        id: 2,
-        name: "2-Talabalar turar joyi",
-        totalRooms: 100,
-        rooms: generateRooms(100, 2, 390)
-      }
-    ];
-  });
+  const [dorms, setDorms] = useState<Dormitory[]>([]);
+  const [requests, setRequests] = useState<AdminRequest[]>([]);
+  const [archive, setArchive] = useState<ArchivedStudent[]>([]);
 
-  // Save to LocalStorage whenever dorms state changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dorms));
-    // Show toast notification briefly on change
-    setShowToast(true);
-    const timer = setTimeout(() => setShowToast(false), 2000);
-    return () => clearTimeout(timer);
-  }, [dorms]);
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      setDorms(parsed.dorms);
+      setRequests(parsed.requests || []);
+      setArchive(parsed.archive || []);
+    } else {
+      setDorms([
+        { id: 1, name: "1-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) },
+        { id: 2, name: "2-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
+      ]);
+    }
+  }, []);
 
-  const updateRoom = (dormId: number, roomNumber: number, newStudent?: Student, removeId?: string) => {
-    setDorms(currentDorms => currentDorms.map(dorm => {
-      if (dorm.id !== dormId) return dorm;
-      
-      return {
-        ...dorm,
-        rooms: dorm.rooms.map(room => {
-          if (room.number !== roomNumber) return room;
-          
-          let updatedStudents = [...room.students];
-          
-          if (removeId) {
-            updatedStudents = updatedStudents.filter(s => s.id !== removeId);
-          } else if (newStudent) {
-            if (updatedStudents.length < 4) {
-              updatedStudents.push(newStudent);
-            }
-          }
-          
-          return { ...room, students: updatedStudents };
-        })
-      };
-    }));
+  useEffect(() => {
+    if (dorms.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ dorms, requests, archive }));
+    }
+  }, [dorms, requests, archive]);
+
+  // Admin sahifaga kirganda habarlarni o'qilgan deb belgilash
+  useEffect(() => {
+    if (view === ViewState.MY_REQUESTS && (currentUser === 'DORM1_ADMIN' || currentUser === 'DORM2_ADMIN')) {
+      const dormId = currentUser === 'DORM1_ADMIN' ? 1 : 2;
+      setRequests(prev => prev.map(req => 
+        (req.dormId === dormId && req.status !== 'PENDING' && !req.isReadByAdmin) 
+          ? { ...req, isReadByAdmin: true } 
+          : req
+      ));
+    }
+  }, [view, currentUser]);
+
+  const notify = (msg: string) => {
+    setToastMsg(msg);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 3000);
   };
 
-  const SidebarItem = ({ viewState, icon: Icon, label }: { viewState: ViewState, icon: any, label: string }) => (
-    <button
-      onClick={() => setView(viewState)}
-      className={`w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl transition-all duration-300 group ${
-        view === viewState 
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 translate-x-1' 
-          : 'text-slate-500 hover:bg-slate-50 hover:text-blue-600'
-      }`}
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (!selectedRole) return;
+    
+    if (selectedRole === 'GUEST') {
+      setCurrentUser('GUEST');
+      setView(ViewState.DASHBOARD);
+      return;
+    }
+    
+    if (password === ADMIN_CREDENTIALS[selectedRole]) {
+      setCurrentUser(selectedRole);
+      if (selectedRole === 'DORM1_ADMIN') setView(ViewState.DORM1);
+      else if (selectedRole === 'DORM2_ADMIN') setView(ViewState.DORM2);
+      else setView(ViewState.DASHBOARD);
+      setPassword('');
+    } else {
+      setLoginError('Xato parol kiritildi!');
+    }
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    setView(ViewState.LOGIN);
+    setSelectedRole(null);
+    setPassword('');
+  };
+
+  const getRoleLabel = (role: UserRole) => {
+    switch(role) {
+      case 'SUPER_ADMIN': return 'SUPER ADMIN';
+      case 'DORM1_ADMIN': return 'TTJ1 ADMIN';
+      case 'DORM2_ADMIN': return 'TTJ2 ADMIN';
+      case 'GUEST': return 'GUEST';
+      default: return role;
+    }
+  };
+
+  const SidebarItem = ({ viewState, icon: Icon, label, badgeCount }: { viewState: ViewState, icon: any, label: string, badgeCount?: number }) => (
+    <button 
+      onClick={() => setView(viewState)} 
+      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-300 ${view === viewState ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50 hover:text-blue-600'}`}
     >
-      <Icon size={22} className={`${view === viewState ? 'text-white' : 'text-slate-400 group-hover:text-blue-600'} transition-colors`} />
-      <span className="font-semibold">{label}</span>
+      <div className="flex items-center space-x-3">
+        <Icon size={20} strokeWidth={view === viewState ? 2.5 : 2} />
+        <span className={`text-sm ${view === viewState ? 'font-bold' : 'font-medium'}`}>{label}</span>
+      </div>
+      {badgeCount !== undefined && badgeCount > 0 && (
+        <span className={`min-w-[18px] h-[18px] flex items-center justify-center px-1 rounded-full text-[10px] font-black ${view === viewState ? 'bg-white text-blue-600' : 'bg-rose-500 text-white animate-pulse'}`}>
+          {badgeCount}
+        </span>
+      )}
     </button>
   );
 
-  return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
-      {/* Sidebar */}
-      <div className="w-72 bg-white border-r border-slate-200 flex flex-col shadow-xl z-20">
-        <div className="p-8 flex items-center space-x-3">
-          <div className="bg-gradient-to-tr from-blue-600 to-indigo-600 p-2.5 rounded-xl shadow-lg shadow-blue-200">
-            <GraduationCap className="text-white" size={26} />
+  const getNotificationsCount = () => {
+    if (currentUser === 'SUPER_ADMIN') return requests.filter(r => r.status === 'PENDING').length;
+    if (currentUser === 'DORM1_ADMIN') return requests.filter(r => r.dormId === 1 && r.status !== 'PENDING' && !r.isReadByAdmin).length;
+    if (currentUser === 'DORM2_ADMIN') return requests.filter(r => r.dormId === 2 && r.status !== 'PENDING' && !r.isReadByAdmin).length;
+    return 0;
+  };
+
+  const myRequests = requests.filter(r => (currentUser === 'DORM1_ADMIN' && r.dormId === 1) || (currentUser === 'DORM2_ADMIN' && r.dormId === 2));
+  const pendingRequests = requests.filter(r => r.status === 'PENDING');
+  const resolvedRequests = requests.filter(r => r.status !== 'PENDING');
+
+  if (view === ViewState.LOGIN) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-[32px] shadow-2xl overflow-hidden border border-slate-200 text-center">
+          <div className="p-10 bg-blue-600">
+            <div className="w-20 h-20 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mx-auto mb-4 text-white">
+              <GraduationCap size={40} />
+            </div>
+            <h1 className="text-2xl font-black text-white uppercase tracking-tighter">GDPI TTJ</h1>
+            <p className="text-blue-100 text-xs font-bold mt-1 opacity-80 uppercase tracking-widest">Boshqaruv tizimi</p>
           </div>
-          <div>
-             <h1 className="font-bold text-slate-800 text-xl leading-none tracking-tight">GDPI</h1>
-             <span className="text-xs font-medium text-slate-400 uppercase tracking-widest">Yotoqxona</span>
-          </div>
-        </div>
-        
-        <nav className="flex-1 px-4 py-6 space-y-2">
-          <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Asosiy menyu</p>
-          <SidebarItem viewState={ViewState.DASHBOARD} icon={LayoutDashboard} label="Boshqaruv Paneli" />
-          <SidebarItem viewState={ViewState.DORM1} icon={Building2} label="1-TTJ Binosi" />
-          <SidebarItem viewState={ViewState.DORM2} icon={Building2} label="2-TTJ Binosi" />
           
-          <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mt-8 mb-2">Qo'shimcha</p>
+          <form onSubmit={handleLogin} className="p-10 space-y-6 text-left">
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Rolingizni tanlang</label>
+              <div className="grid grid-cols-2 gap-3">
+                {(['SUPER_ADMIN', 'DORM1_ADMIN', 'DORM2_ADMIN', 'GUEST'] as UserRole[]).map(role => (
+                  <button 
+                    key={role} 
+                    type="button"
+                    onClick={() => setSelectedRole(role)}
+                    className={`p-3 rounded-xl border-2 text-[10px] font-black transition-all ${selectedRole === role ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-slate-100 text-slate-500 hover:border-slate-200'}`}
+                  >
+                    {getRoleLabel(role)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {selectedRole && selectedRole !== 'GUEST' && (
+              <div className="space-y-2 animate-in slide-in-from-top-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Kirish Paroli</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="password" 
+                    required
+                    placeholder="••••••••"
+                    className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-600 transition-all font-bold"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {loginError && <p className="text-rose-500 text-[10px] font-black text-center uppercase tracking-widest animate-shake">{loginError}</p>}
+
+            <button 
+              type="submit" 
+              disabled={!selectedRole || (selectedRole !== 'GUEST' && !password)}
+              className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
+            >
+              TIZIMGA KIRISH
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-800">
+      <div className="w-72 bg-white border-r border-slate-200 flex flex-col shadow-xl z-20">
+        <div className="p-8 flex items-center space-x-3 text-blue-600">
+          <GraduationCap size={32} strokeWidth={2.5}/>
+          <h1 className="font-black text-xl tracking-tighter text-slate-800">GDPI <span className="text-[10px] block text-slate-400 font-bold uppercase tracking-widest">Dormitory</span></h1>
+        </div>
+        <nav className="flex-1 px-4 py-2 space-y-1">
+          {(currentUser === 'SUPER_ADMIN' || currentUser === 'GUEST') && <SidebarItem viewState={ViewState.DASHBOARD} icon={LayoutDashboard} label="Statistika" />}
+          {(currentUser === 'SUPER_ADMIN' || currentUser === 'GUEST' || currentUser === 'DORM1_ADMIN') && <SidebarItem viewState={ViewState.DORM1} icon={Building2} label="1-TTJ Binosi" />}
+          {(currentUser === 'SUPER_ADMIN' || currentUser === 'GUEST' || currentUser === 'DORM2_ADMIN') && <SidebarItem viewState={ViewState.DORM2} icon={Building2} label="2-TTJ Binosi" />}
+          
+          {currentUser === 'SUPER_ADMIN' && (
+            <>
+              <div className="my-4 border-t border-slate-100"></div>
+              <SidebarItem viewState={ViewState.REQUESTS} icon={Inbox} label="So'rovlar" badgeCount={getNotificationsCount()} />
+              <SidebarItem viewState={ViewState.ARCHIVE} icon={History} label="Arxiv" />
+            </>
+          )}
+
+          {(currentUser === 'DORM1_ADMIN' || currentUser === 'DORM2_ADMIN') && (
+            <>
+              <div className="my-4 border-t border-slate-100"></div>
+              <SidebarItem viewState={ViewState.MY_REQUESTS} icon={MessageSquare} label="Habarlar" badgeCount={getNotificationsCount()} />
+            </>
+          )}
+
+          <div className="my-4 border-t border-slate-100"></div>
+          {/* AI tahlil barcha rollar, jumladan GUEST uchun ham ochiq bo'ldi */}
           <SidebarItem viewState={ViewState.AI_ASSISTANT} icon={Sparkles} label="AI Yordamchi" />
         </nav>
-        
-        <div className="p-6 m-4 mt-auto bg-slate-50 rounded-2xl border border-slate-100">
-          <div className="flex items-center space-x-3 text-sm text-slate-600">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-            </span>
-            <span className="font-semibold">Tizim faol</span>
+        <div className="p-4">
+          <div className="p-4 rounded-2xl mb-4 bg-slate-50 border border-slate-100">
+            <p className="text-[10px] text-slate-400 font-black uppercase mb-1">Rol:</p>
+            <p className="text-sm font-bold flex items-center gap-2 text-slate-700 uppercase tracking-tight"><ShieldCheck size={16} className="text-blue-600" /> {currentUser ? getRoleLabel(currentUser) : ''}</p>
           </div>
+          <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-3.5 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100 transition-all active:scale-95"><LogOut size={18} /> Chiqish</button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative">
-         {/* Decorative Background Blobs */}
-         <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-blue-50/50 to-transparent pointer-events-none z-0"></div>
-
-        <header className="bg-white/80 backdrop-blur-md sticky top-0 z-10 border-b border-slate-200 px-8 py-5 flex justify-between items-center shadow-sm">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-800">
-                    {view === ViewState.DASHBOARD && 'Boshqaruv Paneli'}
-                    {view === ViewState.DORM1 && '1-Talabalar turar joyi'}
-                    {view === ViewState.DORM2 && '2-Talabalar turar joyi'}
-                    {view === ViewState.AI_ASSISTANT && 'Virtual Yordamchi'}
-                </h2>
-                <p className="text-sm text-slate-500 font-medium mt-1">Guliston davlat pedagogika instituti</p>
-            </div>
-            
-            <div className="flex items-center gap-4">
-                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold border border-blue-100">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    2025-2026 O'quv yili
-                </div>
-                <button className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
-                    <Menu size={24} />
-                </button>
-            </div>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-5 flex justify-between items-center z-10">
+          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">
+            {view === ViewState.DORM1 ? 'DORM1' : view === ViewState.DORM2 ? 'DORM2' : view.replace('_', ' ')}
+          </h2>
+          <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black tracking-widest border border-blue-100 uppercase">Live Monitoring</div>
         </header>
 
-        <main className="flex-1 overflow-auto p-6 z-0 scroll-smooth">
-          <div className="max-w-7xl mx-auto pb-10">
-            {view === ViewState.DASHBOARD && <Dashboard dorms={dorms} />}
-            {view === ViewState.DORM1 && (
-              <RoomGrid 
-                rooms={dorms[0].rooms} 
-                dormName={dorms[0].name} 
-                onUpdateRoom={(num, student, removeId) => updateRoom(1, num, student, removeId)} 
-              />
-            )}
-            {view === ViewState.DORM2 && (
-              <RoomGrid 
-                rooms={dorms[1].rooms} 
-                dormName={dorms[1].name} 
-                onUpdateRoom={(num, student, removeId) => updateRoom(2, num, student, removeId)} 
-              />
-            )}
-            {view === ViewState.AI_ASSISTANT && <Assistant dorms={dorms} />}
-          </div>
-        </main>
-
-        {/* Saved Toast Notification */}
-        {showToast && (
-            <div className="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-5 duration-300 z-50">
-                <CheckCircle size={20} className="text-emerald-400" />
-                <span className="font-medium text-sm">Ma'lumotlar avtomatik saqlandi</span>
+        <main className="flex-1 overflow-auto p-8">
+          {view === ViewState.DASHBOARD && <Dashboard dorms={dorms} isAdmin={currentUser !== 'GUEST'} />}
+          {view === ViewState.DORM1 && <RoomGrid rooms={dorms[0].rooms} dormName={dorms[0].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
+                const type = removeId ? 'REMOVE' : 'ADD';
+                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 1, roomNumber: num, student: student || dorms[0].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), isReadByAdmin: false };
+                setRequests(prev => [newRequest, ...prev]);
+                notify("So'rov yuborildi!");
+          }} />}
+          {view === ViewState.DORM2 && <RoomGrid rooms={dorms[1].rooms} dormName={dorms[1].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
+                const type = removeId ? 'REMOVE' : 'ADD';
+                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 2, roomNumber: num, student: student || dorms[1].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), isReadByAdmin: false };
+                setRequests(prev => [newRequest, ...prev]);
+                notify("So'rov yuborildi!");
+          }} />}
+          
+          {view === ViewState.MY_REQUESTS && (
+            <div className="max-w-4xl mx-auto space-y-4">
+              <div className="flex items-center justify-between mb-6">
+                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Mening Habarlarim</h3>
+              </div>
+              {myRequests.length === 0 ? (
+                <div className="bg-white p-12 rounded-3xl border border-slate-100 text-center">
+                  <Mail size={48} className="mx-auto text-slate-200 mb-4" />
+                  <p className="text-slate-400 font-medium">Hozircha habarlar yo'q</p>
+                </div>
+              ) : (
+                myRequests.slice().reverse().map(req => (
+                  <div key={req.id} className={`bg-white p-6 rounded-3xl shadow-sm border transition-all hover:shadow-md ${req.status === 'APPROVED' ? 'border-emerald-100' : req.status === 'REJECTED' ? 'border-rose-100' : 'border-slate-200'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-5">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${req.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-600' : req.status === 'REJECTED' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
+                          <MessageSquare size={24} />
+                        </div>
+                        <div>
+                          <p className="font-black text-slate-800 text-lg uppercase tracking-tight">{req.student.fullName}</p>
+                          <p className="text-[11px] text-slate-400 font-black uppercase tracking-widest mt-0.5">
+                            {req.roomNumber}-Xona • {req.type === 'ADD' ? 'KIRISH ARIZASI' : 'CHIQISH ARIZASI'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right flex flex-col items-end gap-2">
+                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border ${
+                          req.status === 'APPROVED' ? 'bg-emerald-500 text-white border-emerald-400' : 
+                          req.status === 'REJECTED' ? 'bg-rose-500 text-white border-rose-400' : 
+                          'bg-amber-400 text-white border-amber-300'
+                        }`}>
+                          {req.status === 'APPROVED' ? 'TASDIQLANDI' : req.status === 'REJECTED' ? 'RAD ETILDI' : 'KUTILMOQDA'}
+                        </span>
+                        {req.resolvedAt && (
+                          <div className="flex items-center gap-3 text-slate-400 font-bold text-[9px] uppercase tracking-wider">
+                            <span className="flex items-center gap-1"><Calendar size={12} /> {req.resolvedAt.split(',')[0]}</span>
+                            <span className="flex items-center gap-1"><Clock size={12} /> {req.resolvedAt.split(',')[1]}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-        )}
+          )}
+
+          {view === ViewState.REQUESTS && (
+            <div className="max-w-4xl mx-auto space-y-12">
+               <section className="space-y-6">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 flex justify-between items-center">
+                    <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight"><Inbox size={20} className="text-blue-600"/> Kutilayotgan arizalar ({pendingRequests.length})</h3>
+                  </div>
+                  {pendingRequests.map(req => (
+                    <div key={req.id} className="bg-white p-6 rounded-3xl border border-slate-200 flex items-center justify-between">
+                        <div className="flex items-center gap-5">
+                          <img src={req.student.imageUrl} className="w-14 h-14 rounded-2xl object-cover border border-slate-200"/>
+                          <div className="text-left">
+                            <h4 className="font-black text-slate-800">{req.student.fullName}</h4>
+                            <p className="text-[10px] text-blue-600 font-black uppercase">{req.dormId}-TTJ • {req.roomNumber}-XONA • {req.type === 'ADD' ? 'KIRISH' : 'CHIQISH'}</p>
+                            <p className="text-[8px] text-slate-400 font-bold mt-1 uppercase">Yuborildi: {req.createdAt}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-3">
+                          <button onClick={() => setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'REJECTED', resolvedAt: new Date().toLocaleString(), isReadByAdmin: false} : r))} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><XCircle size={24}/></button>
+                          <button onClick={() => {
+                              setDorms(ds => ds.map(d => d.id === req.dormId ? {...d, rooms: d.rooms.map(rm => rm.number === req.roomNumber ? {...rm, students: req.type === 'ADD' ? [...rm.students, req.student] : rm.students.filter(s => s.id !== req.student.id)} : rm)} : d));
+                              setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'APPROVED', resolvedAt: new Date().toLocaleString(), isReadByAdmin: false} : r));
+                              if (req.type === 'REMOVE') {
+                                setArchive(prev => [{...req.student, exitDate: new Date().toLocaleString(), dormName: dorms.find(d => d.id === req.dormId)?.name || ''}, ...prev]);
+                              }
+                              notify("Bajarildi!");
+                          }} className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all"><CheckCircle size={24}/></button>
+                        </div>
+                    </div>
+                  ))}
+               </section>
+
+               <section className="space-y-6">
+                  <div className="bg-slate-100/50 p-6 rounded-3xl border border-slate-200 flex justify-between items-center">
+                    <h3 className="font-black text-slate-500 flex items-center gap-2 uppercase tracking-tight"><History size={20}/> Tarix</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {resolvedRequests.slice().reverse().map(req => (
+                      <div key={req.id} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-shadow">
+                          <div className="text-left">
+                            <p className="font-black text-slate-800 uppercase tracking-tight">{req.student.fullName}</p>
+                            <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                              {req.dormId}-TTJ • {req.roomNumber}-XONA • {req.type === 'ADD' ? 'Kirish' : 'Chiqish'}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-full ${req.status === 'APPROVED' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                              {req.status === 'APPROVED' ? 'TASDIQLANGAN' : 'RAD ETILGAN'}
+                            </span>
+                            <div className="flex items-center gap-1.5 text-slate-400">
+                               <Calendar size={10} />
+                               <p className="text-[9px] font-bold">{req.resolvedAt?.split(',')[0]}</p>
+                               <Clock size={10} className="ml-1" />
+                               <p className="text-[9px] font-bold">{req.resolvedAt?.split(',')[1]}</p>
+                            </div>
+                          </div>
+                      </div>
+                    ))}
+                  </div>
+               </section>
+            </div>
+          )}
+
+          {view === ViewState.ARCHIVE && (
+            <div className="max-w-6xl mx-auto space-y-6">
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                    <History size={24} className="text-blue-600" /> ARXIV BAZASI
+                  </h3>
+                  <div className="px-4 py-2 bg-slate-50 rounded-full text-[10px] font-black text-slate-400 uppercase tracking-widest border border-slate-100">
+                    Jami: {archive.length} talaba
+                  </div>
+                </div>
+
+                <div className="overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 border-y border-slate-100">
+                      <tr>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Talaba</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Fakultet / Yo'nalish</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Bino</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Kirish/Chiqish Sanasi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {archive.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-12 text-center text-slate-400 font-medium">Arxiv hozircha bo'sh</td>
+                        </tr>
+                      ) : (
+                        archive.map((s, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/80 transition-colors group">
+                            <td className="px-6 py-5">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 font-black text-sm border border-blue-100">
+                                  {s.fullName.charAt(0)}
+                                </div>
+                                <p className="font-black text-slate-800 uppercase tracking-tight group-hover:text-blue-600 transition-colors">{s.fullName}</p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-5">
+                              <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-slate-800 uppercase leading-tight">{s.faculty}</span>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">{s.direction}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-5">
+                              <div className="flex items-center gap-2">
+                                <Building2 size={14} className="text-slate-300" />
+                                <span className="text-[10px] font-bold text-slate-500 uppercase">{s.dormName.replace('Talabalar turar joyi', 'TTJ')}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-5">
+                              <div className="flex flex-col items-end gap-1">
+                                <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md border border-emerald-100">
+                                  <span className="text-[8px] font-black">IN:</span>
+                                  <span className="text-[9px] font-bold">{s.joinedDate}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 bg-rose-50 text-rose-600 px-2 py-0.5 rounded-md border border-rose-100">
+                                  <span className="text-[8px] font-black">OUT:</span>
+                                  <span className="text-[9px] font-bold">{s.exitDate}</span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {view === ViewState.AI_ASSISTANT && <Assistant dorms={dorms} />}
+        </main>
       </div>
+
+      {showToast && (
+        <div className="fixed bottom-10 right-10 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-bottom-10 flex items-center gap-2">
+          <CheckCircle size={18} className="text-emerald-400" />
+          <span className="font-bold text-sm uppercase tracking-tight">{toastMsg}</span>
+        </div>
+      )}
     </div>
   );
 };
