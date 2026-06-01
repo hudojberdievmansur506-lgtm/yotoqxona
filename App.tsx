@@ -43,6 +43,27 @@ const getArchiveExitTime = (student: ArchivedStudent): number => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
+const safeFetch = async (url: string, options?: RequestInit): Promise<Response> => {
+  try {
+    const res = await fetch(url, options);
+    if (res.ok) return res;
+    if (url.startsWith('http://172.23.0.118:3002/api')) {
+      const fallbackUrl = url.replace('http://172.23.0.118:3002/api', '/api');
+      console.warn(`Direct fetch to ${url} returned status ${res.status}. Trying secure local custom proxy fallback to ${fallbackUrl}...`);
+      const fallbackRes = await fetch(fallbackUrl, options);
+      return fallbackRes;
+    }
+    return res;
+  } catch (err) {
+    console.warn(`Direct fetch to ${url} failed. Trying secure local custom proxy fallback...`, err);
+    if (url.startsWith('http://172.23.0.118:3002/api')) {
+      const fallbackUrl = url.replace('http://172.23.0.118:3002/api', '/api');
+      return await fetch(fallbackUrl, options);
+    }
+    throw err;
+  }
+};
+
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserRole | null>(null);
   const [view, setView] = useState<ViewState>(ViewState.LOGIN);
@@ -111,7 +132,7 @@ const App: React.FC = () => {
     // Persistently sync and load real-time applications from the external applications API
     const loadApps = async () => {
       try {
-        const res = await fetch('http://172.23.0.118:3002/api/applications');
+        const res = await safeFetch('http://172.23.0.118:3002/api/applications');
         if (!res.ok) {
           throw new Error(`Failed to load applications with status ${res.status}`);
         }
@@ -459,7 +480,7 @@ const App: React.FC = () => {
                           <button onClick={async () => {
                               // Reject application
                               try {
-                                const response = await fetch(`http://172.23.0.118:3002/api/applications/${req.id}/status`, {
+                                const response = await safeFetch(`http://172.23.0.118:3002/api/applications/${req.id}/status`, {
                                   method: 'PUT',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ status: 'REJECTED' })
@@ -477,7 +498,7 @@ const App: React.FC = () => {
                           <button onClick={async () => {
                               // Approve application
                               try {
-                                const response = await fetch(`http://172.23.0.118:3002/api/applications/${req.id}/status`, {
+                                const response = await safeFetch(`http://172.23.0.118:3002/api/applications/${req.id}/status`, {
                                   method: 'PUT',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ status: 'APPROVED' })
