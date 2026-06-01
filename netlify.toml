@@ -1,0 +1,18 @@
+# GDPI Yotoqxona Platformasi - Netlify configuration file
+
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+# 1. Proxy `/api/*` requests to the real backend ngrok URL to completely bypass CORS 
+[[redirects]]
+  from = "/api/*"
+  to = "https://king-dork-opulently.ngrok-free.dev/api/:splat"
+  status = 200
+  force = true
+
+# 2. Redirect all other requests to index.html for React SPA Routing support
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

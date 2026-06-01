@@ -5,7 +5,7 @@ import RoomGrid from './components/RoomGrid';
 import Assistant from './components/Assistant';
 import { 
   LayoutDashboard, Building2, Sparkles, GraduationCap, 
-  CheckCircle, LogOut, ShieldCheck, Bell, History, Inbox, XCircle, MessageSquare, Lock, Calendar, Clock, Mail
+  CheckCircle, LogOut, ShieldCheck, Bell, History, Inbox, XCircle, MessageSquare, Lock, Calendar, Clock, Mail, Trash2
 } from 'lucide-react';
 
 const STORAGE_KEY = 'gdpi_dorm_system_v2';
@@ -536,16 +536,42 @@ const App: React.FC = () => {
                               {req.dormId}-TTJ • {req.roomNumber}-XONA • {req.type === 'ADD' ? 'Kirish' : 'Chiqish'}
                             </p>
                           </div>
-                          <div className="flex flex-col items-end gap-1">
-                            <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-full ${req.status === 'APPROVED' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-                              {req.status === 'APPROVED' ? 'TASDIQLANGAN' : 'RAD ETILGAN'}
-                            </span>
-                            <div className="flex items-center gap-1.5 text-slate-400">
-                               <Calendar size={10} />
-                               <p className="text-[9px] font-bold">{req.resolvedAt?.split(',')[0]}</p>
-                               <Clock size={10} className="ml-1" />
-                               <p className="text-[9px] font-bold">{req.resolvedAt?.split(',')[1]}</p>
+                          <div className="flex items-center gap-4">
+                            <div className="flex flex-col items-end gap-1">
+                              <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-full ${req.status === 'APPROVED' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                                {req.status === 'APPROVED' ? 'TASDIQLANGAN' : 'RAD ETILGAN'}
+                              </span>
+                              <div className="flex items-center gap-1.5 text-slate-400">
+                                 <Calendar size={10} />
+                                 <p className="text-[9px] font-bold">{req.resolvedAt?.split(',')[0]}</p>
+                                 <Clock size={10} className="ml-1" />
+                                 <p className="text-[9px] font-bold">{req.resolvedAt?.split(',')[1]}</p>
+                              </div>
                             </div>
+                            <button 
+                              onClick={async () => {
+                                if (confirm("Ushbu arizani tarixdan o'chirmoqchimisiz?")) {
+                                  try {
+                                    const response = await safeFetch(`${API_BASE_URL}/applications/${req.id}`, {
+                                      method: 'DELETE'
+                                    });
+                                    if (response.ok || response.status === 204) {
+                                      setRequests(prev => prev.filter(r => r.id !== req.id));
+                                      notify("Ariza tarixdan o'chirildi!");
+                                    } else {
+                                      throw new Error("Failed to delete application");
+                                    }
+                                  } catch (err) {
+                                    console.error("Error deleting application:", err);
+                                    notify("Xatolik yuz berdi!");
+                                  }
+                                }
+                              }} 
+                              className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                              title="Tarixdan o'chirish"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           </div>
                       </div>
                     ))}
