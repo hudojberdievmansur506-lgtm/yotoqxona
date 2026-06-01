@@ -4,7 +4,7 @@ import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 
 const PORT = 3000;
-const EXTERNAL_API_BASE = 'http://172.23.0.118:3002/api';
+const EXTERNAL_API_BASE = 'https://king-dork-opulently.ngrok-free.dev/api';
 
 async function startServer() {
   const app = express();
@@ -129,6 +129,33 @@ async function startServer() {
       return res.status(500).json({
         success: false,
         message: 'Ariza statusini yangilashda xatolik yuz berdi'
+      });
+    }
+  });
+
+  // Proxy/Fallback for deleting applications
+  app.delete('/api/applications/:id', async (req, res) => {
+    const { id } = req.params;
+    console.log(`DELETE /api/applications/${id} forwarding to external API`);
+    try {
+      const response = await fetch(`${EXTERNAL_API_BASE}/applications/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      if (response.status === 204) {
+        return res.status(204).end();
+      }
+
+      const data = await response.json().catch(() => ({}));
+      return res.status(response.status).json(data);
+    } catch (err: any) {
+      console.error('Error deleting application on external API:', err.message || err);
+      return res.status(500).json({
+        success: false,
+        message: 'Arizani o‘chirishda xatolik yuz berdi'
       });
     }
   });

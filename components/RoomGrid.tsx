@@ -11,12 +11,14 @@ interface RoomGridProps {
   allDorms?: any[];
 }
 
+const API_BASE_URL = "https://king-dork-opulently.ngrok-free.dev/api";
+
 const safeFetch = async (url: string, options?: RequestInit): Promise<Response> => {
   try {
     const res = await fetch(url, options);
     if (res.ok) return res;
-    if (url.startsWith('http://172.23.0.118:3002/api')) {
-      const fallbackUrl = url.replace('http://172.23.0.118:3002/api', '/api');
+    if (url.startsWith(API_BASE_URL)) {
+      const fallbackUrl = url.replace(API_BASE_URL, '/api');
       console.warn(`Direct fetch to ${url} returned status ${res.status}. Trying secure local custom proxy fallback to ${fallbackUrl}...`);
       const fallbackRes = await fetch(fallbackUrl, options);
       return fallbackRes;
@@ -24,8 +26,8 @@ const safeFetch = async (url: string, options?: RequestInit): Promise<Response> 
     return res;
   } catch (err) {
     console.warn(`Direct fetch to ${url} failed. Trying secure local custom proxy fallback...`, err);
-    if (url.startsWith('http://172.23.0.118:3002/api')) {
-      const fallbackUrl = url.replace('http://172.23.0.118:3002/api', '/api');
+    if (url.startsWith(API_BASE_URL)) {
+      const fallbackUrl = url.replace(API_BASE_URL, '/api');
       return await fetch(fallbackUrl, options);
     }
     throw err;
@@ -62,7 +64,7 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
     setIsManualMode(false);
 
     try {
-      const response = await safeFetch(`http://172.23.0.118:3002/api/students/search/${studentIdInput.trim()}`);
+      const response = await safeFetch(`${API_BASE_URL}/students/search/${studentIdInput.trim()}`);
       if (!response.ok) {
         throw new Error(`Search failed: status ${response.status}`);
       }
@@ -122,7 +124,7 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
           student: foundStudent
         };
         try {
-          res = await safeFetch('http://172.23.0.118:3002/api/applications', {
+          res = await safeFetch(`${API_BASE_URL}/applications`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
