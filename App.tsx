@@ -16,6 +16,33 @@ const ADMIN_CREDENTIALS: Record<string, string> = {
   'DORM2_ADMIN': 'ttj2_pass'
 };
 
+const getRequestCreatedAtTime = (req: AdminRequest): number => {
+  if (req.createdAtTimestamp !== undefined && req.createdAtTimestamp !== null) {
+    return req.createdAtTimestamp;
+  }
+  const parsed = Date.parse(req.createdAt);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+const getRequestResolvedAtTime = (req: AdminRequest): number => {
+  if (req.resolvedAtTimestamp !== undefined && req.resolvedAtTimestamp !== null) {
+    return req.resolvedAtTimestamp;
+  }
+  if (req.resolvedAt) {
+    const parsed = Date.parse(req.resolvedAt);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+};
+
+const getArchiveExitTime = (student: ArchivedStudent): number => {
+  if (student.exitDateTimestamp !== undefined && student.exitDateTimestamp !== null) {
+    return student.exitDateTimestamp;
+  }
+  const parsed = Date.parse(student.exitDate);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserRole | null>(null);
   const [view, setView] = useState<ViewState>(ViewState.LOGIN);
@@ -34,6 +61,43 @@ const App: React.FC = () => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      if (parsed.dorms) {
+        parsed.dorms.forEach((d: any) => {
+          if (d.rooms) {
+            d.rooms.forEach((rm: any) => {
+              if (rm.students) {
+                rm.students.forEach((s: any) => {
+                  if (s && (s.course === null || s.course === undefined || isNaN(Number(s.course)))) {
+                    s.course = 1;
+                  } else if (s) {
+                    s.course = Number(s.course);
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+      if (parsed.requests) {
+        parsed.requests.forEach((req: any) => {
+          if (req?.student) {
+            if (req.student.course === null || req.student.course === undefined || isNaN(Number(req.student.course))) {
+              req.student.course = 1;
+            } else {
+              req.student.course = Number(req.student.course);
+            }
+          }
+        });
+      }
+      if (parsed.archive) {
+        parsed.archive.forEach((s: any) => {
+          if (s && (s.course === null || s.course === undefined || isNaN(Number(s.course)))) {
+            s.course = 1;
+          } else if (s) {
+            s.course = Number(s.course);
+          }
+        });
+      }
       setDorms(parsed.dorms);
       setRequests(parsed.requests || []);
       setArchive(parsed.archive || []);
@@ -43,6 +107,65 @@ const App: React.FC = () => {
         { id: 2, name: "2-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
       ]);
     }
+
+    // Persistently sync and load real-time applications from the external applications API
+    const loadApps = async () => {
+      try {
+        const res = await fetch('http://172.23.0.118:3002/api/applications');
+        if (!res.ok) {
+          throw new Error(`Failed to load applications with status ${res.status}`);
+        }
+        
+        const data = await res.json();
+        if (data.success && data.applications) {
+          const dbRequests: AdminRequest[] = data.applications.map((app: any) => ({
+            id: app.id,
+            type: app.type as 'ADD' | 'REMOVE',
+            dormId: app.dorm_id,
+            roomNumber: app.room_number,
+            student: {
+              id: app.id,
+              hemisId: app.student_id_number,
+              fullName: app.full_name,
+              course: parseInt(String(app.course).replace(/\D/g, '')) || 1,
+              group: app.group_name,
+              faculty: app.faculty,
+              direction: app.specialty,
+              imageUrl: app.image,
+              joinedDate: new Date(app.created_at).toLocaleString()
+            },
+            status: app.status as 'PENDING' | 'APPROVED' | 'REJECTED',
+            createdAt: new Date(app.created_at).toLocaleString(),
+            createdAtTimestamp: new Date(app.created_at).getTime(),
+            resolvedAt: app.resolved_at ? new Date(app.resolved_at).toLocaleString() : undefined,
+            resolvedAtTimestamp: app.resolved_at ? new Date(app.resolved_at).getTime() : undefined,
+            isReadByAdmin: false
+          }));
+
+          setRequests(prev => {
+            const merged = [...prev];
+            dbRequests.forEach(dbReq => {
+              const idx = merged.findIndex(r => r.id === dbReq.id);
+              if (idx !== -1) {
+                merged[idx] = { 
+                  ...merged[idx], 
+                  status: dbReq.status, 
+                  resolvedAt: dbReq.resolvedAt,
+                  resolvedAtTimestamp: dbReq.resolvedAtTimestamp,
+                  createdAtTimestamp: dbReq.createdAtTimestamp
+                };
+              } else {
+                merged.unshift(dbReq);
+              }
+            });
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.log('Persistence loader failure:', err);
+      }
+    };
+    loadApps();
   }, []);
 
   useEffect(() => {
@@ -135,6 +258,15 @@ const App: React.FC = () => {
   const myRequests = requests.filter(r => (currentUser === 'DORM1_ADMIN' && r.dormId === 1) || (currentUser === 'DORM2_ADMIN' && r.dormId === 2));
   const pendingRequests = requests.filter(r => r.status === 'PENDING');
   const resolvedRequests = requests.filter(r => r.status !== 'PENDING');
+
+  const sortedMyRequests = [...myRequests].sort((a, b) => getRequestCreatedAtTime(b) - getRequestCreatedAtTime(a));
+  const sortedPendingRequests = [...pendingRequests].sort((a, b) => getRequestCreatedAtTime(b) - getRequestCreatedAtTime(a));
+  const sortedResolvedRequests = [...resolvedRequests].sort((a, b) => {
+    const timeA = getRequestResolvedAtTime(a) || getRequestCreatedAtTime(a);
+    const timeB = getRequestResolvedAtTime(b) || getRequestCreatedAtTime(b);
+    return timeB - timeA;
+  });
+  const sortedArchive = [...archive].sort((a, b) => getArchiveExitTime(b) - getArchiveExitTime(a));
 
   if (view === ViewState.LOGIN) {
     return (
@@ -249,13 +381,13 @@ const App: React.FC = () => {
           {view === ViewState.DASHBOARD && <Dashboard dorms={dorms} isAdmin={currentUser !== 'GUEST'} />}
           {view === ViewState.DORM1 && <RoomGrid rooms={dorms[0].rooms} dormName={dorms[0].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
                 const type = removeId ? 'REMOVE' : 'ADD';
-                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 1, roomNumber: num, student: student || dorms[0].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), isReadByAdmin: false };
+                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 1, roomNumber: num, student: student || dorms[0].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), createdAtTimestamp: Date.now(), isReadByAdmin: false };
                 setRequests(prev => [newRequest, ...prev]);
                 notify("So'rov yuborildi!");
           }} />}
           {view === ViewState.DORM2 && <RoomGrid rooms={dorms[1].rooms} dormName={dorms[1].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
                 const type = removeId ? 'REMOVE' : 'ADD';
-                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 2, roomNumber: num, student: student || dorms[1].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), isReadByAdmin: false };
+                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 2, roomNumber: num, student: student || dorms[1].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), createdAtTimestamp: Date.now(), isReadByAdmin: false };
                 setRequests(prev => [newRequest, ...prev]);
                 notify("So'rov yuborildi!");
           }} />}
@@ -265,13 +397,13 @@ const App: React.FC = () => {
               <div className="flex items-center justify-between mb-6">
                  <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Mening Habarlarim</h3>
               </div>
-              {myRequests.length === 0 ? (
+              {sortedMyRequests.length === 0 ? (
                 <div className="bg-white p-12 rounded-3xl border border-slate-100 text-center">
                   <Mail size={48} className="mx-auto text-slate-200 mb-4" />
                   <p className="text-slate-400 font-medium">Hozircha habarlar yo'q</p>
                 </div>
               ) : (
-                myRequests.slice().reverse().map(req => (
+                sortedMyRequests.map(req => (
                   <div key={req.id} className={`bg-white p-6 rounded-3xl shadow-sm border transition-all hover:shadow-md ${req.status === 'APPROVED' ? 'border-emerald-100' : req.status === 'REJECTED' ? 'border-rose-100' : 'border-slate-200'}`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-5">
@@ -311,9 +443,9 @@ const App: React.FC = () => {
             <div className="max-w-4xl mx-auto space-y-12">
                <section className="space-y-6">
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 flex justify-between items-center">
-                    <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight"><Inbox size={20} className="text-blue-600"/> Kutilayotgan arizalar ({pendingRequests.length})</h3>
+                    <h3 className="font-black text-slate-800 flex items-center gap-2 uppercase tracking-tight"><Inbox size={20} className="text-blue-600"/> Kutilayotgan arizalar ({sortedPendingRequests.length})</h3>
                   </div>
-                  {pendingRequests.map(req => (
+                  {sortedPendingRequests.map(req => (
                     <div key={req.id} className="bg-white p-6 rounded-3xl border border-slate-200 flex items-center justify-between">
                         <div className="flex items-center gap-5">
                           <img src={req.student.imageUrl} className="w-14 h-14 rounded-2xl object-cover border border-slate-200"/>
@@ -324,12 +456,42 @@ const App: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex gap-3">
-                          <button onClick={() => setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'REJECTED', resolvedAt: new Date().toLocaleString(), isReadByAdmin: false} : r))} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><XCircle size={24}/></button>
-                          <button onClick={() => {
+                          <button onClick={async () => {
+                              // Reject application
+                              try {
+                                const response = await fetch(`http://172.23.0.118:3002/api/applications/${req.id}/status`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'REJECTED' })
+                                });
+                                if (!response.ok) {
+                                  throw new Error("Failed to update status");
+                                }
+                              } catch (err) {
+                                console.error("Status PUT rejected failed:", err);
+                              }
+                              setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'REJECTED', resolvedAt: new Date().toLocaleString(), resolvedAtTimestamp: Date.now(), isReadByAdmin: false} : r));
+                              notify("Rad etildi!");
+                          }} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><XCircle size={24}/></button>
+                          
+                          <button onClick={async () => {
+                              // Approve application
+                              try {
+                                const response = await fetch(`http://172.23.0.118:3002/api/applications/${req.id}/status`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'APPROVED' })
+                                });
+                                if (!response.ok) {
+                                  throw new Error("Failed to update status");
+                                }
+                              } catch (err) {
+                                console.error("Status PUT approved failed:", err);
+                              }
                               setDorms(ds => ds.map(d => d.id === req.dormId ? {...d, rooms: d.rooms.map(rm => rm.number === req.roomNumber ? {...rm, students: req.type === 'ADD' ? [...rm.students, req.student] : rm.students.filter(s => s.id !== req.student.id)} : rm)} : d));
-                              setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'APPROVED', resolvedAt: new Date().toLocaleString(), isReadByAdmin: false} : r));
+                              setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'APPROVED', resolvedAt: new Date().toLocaleString(), resolvedAtTimestamp: Date.now(), isReadByAdmin: false} : r));
                               if (req.type === 'REMOVE') {
-                                setArchive(prev => [{...req.student, exitDate: new Date().toLocaleString(), dormName: dorms.find(d => d.id === req.dormId)?.name || ''}, ...prev]);
+                                setArchive(prev => [{...req.student, exitDate: new Date().toLocaleString(), exitDateTimestamp: Date.now(), dormName: dorms.find(d => d.id === req.dormId)?.name || ''}, ...prev]);
                               }
                               notify("Bajarildi!");
                           }} className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all"><CheckCircle size={24}/></button>
@@ -343,7 +505,7 @@ const App: React.FC = () => {
                     <h3 className="font-black text-slate-500 flex items-center gap-2 uppercase tracking-tight"><History size={20}/> Tarix</h3>
                   </div>
                   <div className="space-y-3">
-                    {resolvedRequests.slice().reverse().map(req => (
+                    {sortedResolvedRequests.map(req => (
                       <div key={req.id} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-shadow">
                           <div className="text-left">
                             <p className="font-black text-slate-800 uppercase tracking-tight">{req.student.fullName}</p>
@@ -377,7 +539,7 @@ const App: React.FC = () => {
                     <History size={24} className="text-blue-600" /> ARXIV BAZASI
                   </h3>
                   <div className="px-4 py-2 bg-slate-50 rounded-full text-[10px] font-black text-slate-400 uppercase tracking-widest border border-slate-100">
-                    Jami: {archive.length} talaba
+                    Jami: {sortedArchive.length} talaba
                   </div>
                 </div>
 
@@ -392,12 +554,12 @@ const App: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {archive.length === 0 ? (
+                      {sortedArchive.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-6 py-12 text-center text-slate-400 font-medium">Arxiv hozircha bo'sh</td>
+                          <td colSpan={4} className="px-6 py-12 text-center text-slate-400 font-medium font-bold">Arxiv hozircha bo'sh</td>
                         </tr>
                       ) : (
-                        archive.map((s, idx) => (
+                        sortedArchive.map((s, idx) => (
                           <tr key={idx} className="hover:bg-slate-50/80 transition-colors group">
                             <td className="px-6 py-5">
                               <div className="flex items-center gap-3">

@@ -19,11 +19,7 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
   const [isManualMode, setIsManualMode] = useState(false);
 
   // Search form state
-  const [searchIdentity, setSearchIdentity] = useState({
-    passportSeries: '',
-    passportNumber: '',
-    jshir: ''
-  });
+  const [studentIdInput, setStudentIdInput] = useState('');
 
   // Manual form state
   const [manualStudent, setManualStudent] = useState({
@@ -33,11 +29,9 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
     faculty: ''
   });
 
-  const searchFromHemis = async () => {
-    const { passportSeries, passportNumber, jshir } = searchIdentity;
-    
-    if (!passportSeries.trim() || !passportNumber.trim() || !jshir.trim()) {
-      setError("Iltimos, aniq izlash uchun barcha maydonlarni (Seriya, Raqam va JSHIR) to'liq kiriting");
+  const searchFromApi = async () => {
+    if (!studentIdInput.trim()) {
+      setError("Iltimos, Talaba ID yoki JShShIR kiriting!");
       return;
     }
     
@@ -47,47 +41,20 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
     setIsManualMode(false);
 
     try {
-      const params = new URLSearchParams();
-      params.append('passport_series', passportSeries.trim().toUpperCase());
-      params.append('passport_number', passportNumber.trim());
-      params.append('passport_pin', jshir.trim());
-
-      const url = `https://student.gspi.uz/rest/v1/data/student-list?${params.toString()}`;
-
-      // We use a direct fetch. If it fails with 'Failed to fetch', it's almost certainly CORS.
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'accept': 'application/json',
-          'Authorization': 'Bearer 3wDM12YjwzLS94R1B_eIsvBu1f7MIPwI'
-        }
-      });
-
+      const response = await fetch(`http://172.23.0.118:3002/api/students/search/${studentIdInput.trim()}`);
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        throw new Error(`Search failed: status ${response.status}`);
       }
-
       const data = await response.json();
-      const items = data?.data?.items || [];
-      
-      // Since there are 7,234 students, we verify the specific match manually from results
-      const studentData = items.find((item: any) => 
-        String(item.passport_pin) === String(jshir.trim())
-      ) || items[0]; 
 
-      if (!studentData) {
-        setError("Ushbu ma'lumotlar bilan talaba topilmadi. Ma'lumotlarni tekshiring.");
+      if (data && data.success === true && data.student) {
+        checkAndSetStudent(data.student);
       } else {
-        checkAndSetStudent(studentData);
+        setError("Talaba topilmadi");
       }
     } catch (err: any) {
-      console.error("HEMIS API Error Details:", err);
-      
-      if (err.message === 'Failed to fetch') {
-        setError("HEMIS serveriga to'g'ridan-to'g'ri bog'lanish bloklandi (CORS xatoligi). Bu brauzer xavfsizlik cheklovi hisoblanadi. Iltimos, talabani qo'lda qo'shish variantidan foydalaning.");
-      } else {
-        setError("Tizimda nosozlik yuz berdi. Ma'lumotlarni qo'lda kiritishingiz mumkin.");
-      }
+      console.error("Student API Search Error Details:", err);
+      setError("Talaba topilmadi");
     } finally {
       setSearching(false);
     }
@@ -95,7 +62,7 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
 
   const checkAndSetStudent = (studentData: any) => {
     let exists = false;
-    const studentId = studentData.student_id || studentData.id;
+    const studentId = studentData.student_id_number;
 
     if (allDorms) {
       for (const d of allDorms) {
@@ -116,23 +83,68 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
     }
   };
 
-  const handleAddRequest = () => {
+  const handleAddRequest = async () => {
     if (!selectedRoom) return;
 
     let newStudent: Student;
 
     if (foundStudent) {
-      newStudent = {
-        id: Math.random().toString(36).substr(2, 9),
-        hemisId: String(foundStudent.student_id || foundStudent.id),
-        fullName: foundStudent.full_name || foundStudent.fullName,
-        faculty: foundStudent.faculty?.name || foundStudent.faculty || 'Noma\'lum',
-        direction: foundStudent.specialty?.name || foundStudent.specialty || 'Noma\'lum',
-        course: Number(foundStudent.level?.code || foundStudent.level || 1),
-        group: foundStudent.group?.name || foundStudent.group || 'Noma\'lum',
-        imageUrl: foundStudent.image || foundStudent.imageUrl || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.student_id || foundStudent.id}`,
-        joinedDate: new Date().toLocaleString(),
-      };
+      try {
+        const dormId = dormName.includes("1") ? 1 : 2;
+
+        let res;
+        const payload = {
+          student_id_number: foundStudent.student_id_number,
+          dorm_id: dormId,
+          room_number: selectedRoom.number,
+          type: 'ADD',
+          student: foundStudent
+        };
+        try {
+          res = await fetch('http://172.23.0.118:3002/api/applications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            throw new Error(`POST failed on server: status ${res.status}`);
+          }
+        } catch (postErr: any) {
+          console.error("POST applications failed:", postErr);
+          throw new Error("Serverga bog'lanishda xatolik yuz berdi.");
+        }
+
+        let data;
+        try {
+          data = await res.json();
+        } catch (jsonErr) {
+          console.error("Failed to parse POST response as JSON:", jsonErr);
+          throw new Error("Noma'lum server formati: serverdan noto'g'ri javob oldik.");
+        }
+
+        if (!data || !data.success) {
+          setError(data?.message || "Arizani saqlashda xatolik yuz berdi.");
+          return;
+        }
+
+        newStudent = {
+          id: data.application.id,
+          hemisId: String(foundStudent.student_id_number),
+          fullName: foundStudent.full_name,
+          faculty: foundStudent.faculty,
+          direction: foundStudent.specialty,
+          course: parseInt(String(foundStudent.course).replace(/\D/g, '')) || 1,
+          group: foundStudent.group_name,
+          imageUrl: foundStudent.image || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.student_id_number}`,
+          joinedDate: new Date().toLocaleString(),
+        };
+
+        onUpdateRoom(selectedRoom.number, newStudent);
+        resetState();
+      } catch (err) {
+        console.error("Failed to post application:", err);
+        setError("Arizani yuborishda xatolik yuz berdi.");
+      }
     } else if (isManualMode) {
       if (!manualStudent.fullName || !manualStudent.group) {
         setError("Talaba ismi va guruhi majburiy!");
@@ -140,26 +152,24 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
       }
       newStudent = {
         id: Math.random().toString(36).substr(2, 9),
-        hemisId: searchIdentity.jshir || 'M-' + Date.now(),
+        hemisId: 'M-' + Date.now(),
         fullName: manualStudent.fullName,
         faculty: manualStudent.faculty || 'Noma\'lum',
         direction: 'Qo\'lda kiritilgan',
-        course: Number(manualStudent.course),
+        course: parseInt(String(manualStudent.course).replace(/\D/g, '')) || 1,
         group: manualStudent.group,
         imageUrl: `https://api.dicebear.com/9.x/avataaars/png?seed=${manualStudent.fullName}`,
         joinedDate: new Date().toLocaleString(),
       };
-    } else {
-      return;
-    }
 
-    onUpdateRoom(selectedRoom.number, newStudent);
-    resetState();
+      onUpdateRoom(selectedRoom.number, newStudent);
+      resetState();
+    }
   };
 
   const resetState = () => {
     setFoundStudent(null);
-    setSearchIdentity({ passportSeries: '', passportNumber: '', jshir: '' });
+    setStudentIdInput('');
     setSelectedRoom(null);
     setError('');
     setIsManualMode(false);
@@ -281,48 +291,34 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
                   {!isManualMode ? (
                     <>
                       <h4 className="font-black text-[10px] text-blue-600 uppercase mb-4 tracking-widest flex items-center gap-2">
-                        <ShieldCheck size={16}/> HEMIS BAZASIDAN QIDIRUV
+                        <ShieldCheck size={16}/> TALABALAR BAZASIDAN QIDIRUV
                       </h4>
                       
                       <div className="space-y-3">
-                        <div className="grid grid-cols-3 gap-2">
-                             <input 
-                                placeholder="Seriya" 
-                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold text-center uppercase"
-                                maxLength={2}
-                                value={searchIdentity.passportSeries}
-                                onChange={e => setSearchIdentity({...searchIdentity, passportSeries: e.target.value.toUpperCase()})}
-                              />
-                              <input 
-                                placeholder="Pasport raqami" 
-                                className="col-span-2 w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold"
-                                maxLength={7}
-                                value={searchIdentity.passportNumber}
-                                onChange={e => setSearchIdentity({...searchIdentity, passportNumber: e.target.value.replace(/\D/g, '')})}
-                              />
+                        <div className="relative">
+                          <input 
+                            placeholder="Talaba ID yoki JShShIR kiriting" 
+                            className="w-full p-4 pl-12 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold"
+                            value={studentIdInput}
+                            onChange={e => setStudentIdInput(e.target.value.replace(/\s/g, ''))}
+                          />
+                          <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                         </div>
-                        <input 
-                          placeholder="JSHIR (PINFL - 14 ta raqam)" 
-                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold"
-                          maxLength={14}
-                          value={searchIdentity.jshir}
-                          onChange={e => setSearchIdentity({...searchIdentity, jshir: e.target.value.replace(/\D/g, '')})}
-                        />
 
                         <button 
-                          onClick={searchFromHemis}
+                          onClick={searchFromApi}
                           disabled={searching}
                           className="w-full bg-blue-600 text-white py-4 rounded-2xl hover:bg-blue-700 disabled:opacity-50 transition-all font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"
                         >
                           {searching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                          IZLASH (7,234 TA TALABA ICHIDAN)
+                          QIDIRISH
                         </button>
                       </div>
 
                       {error && (
                         <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl mt-4 animate-shake text-left">
                            <div className="flex items-start gap-2 text-rose-600 text-[10px] font-black mb-3">
-                            <AlertCircle size={14} className="mt-0.5 flex-shrink-0" /> <span>{error}</span>
+                             <AlertCircle size={14} className="mt-0.5 flex-shrink-0" /> <span>{error}</span>
                            </div>
                            <button 
                              onClick={() => { setIsManualMode(true); setError(''); }}
@@ -334,19 +330,50 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
                       )}
 
                       {foundStudent && (
-                        <div className="mt-4 p-4 bg-blue-50 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2 text-left">
-                          <div className="flex items-center gap-3 mb-4">
-                            <img src={foundStudent.image || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.id}`} className="w-14 h-14 rounded-xl border bg-white object-cover"/>
-                            <div>
-                              <p className="font-black text-slate-800 text-sm leading-tight uppercase">{foundStudent.full_name || foundStudent.fullName}</p>
-                              <p className="text-[9px] text-blue-600 font-black mt-1 uppercase">Guruh: {foundStudent.group?.name || foundStudent.group}</p>
+                        <div className="mt-4 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in slide-in-from-top-2 text-left space-y-4">
+                          <div className="flex items-start gap-4">
+                            <img src={foundStudent.image || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.student_id_number}`} className="w-16 h-16 rounded-2xl border bg-white object-cover shadow-sm"/>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-extrabold text-slate-900 text-base leading-tight uppercase truncate">{foundStudent.full_name}</p>
+                              <p className="text-[10px] font-black text-blue-600 tracking-wider uppercase mt-1">ID: {foundStudent.student_id_number}</p>
                             </div>
                           </div>
+                          
+                          {/* Auto-filled details in a grid */}
+                          <div className="bg-white p-4 rounded-xl border border-slate-100 grid grid-cols-2 gap-3 text-xs">
+                            <div className="col-span-2">
+                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Fakultet:</span>
+                              <span className="font-bold text-slate-800">{foundStudent.faculty}</span>
+                            </div>
+                            <div className="col-span-2">
+                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Yo'nalish / Mutaxassislik:</span>
+                              <span className="font-bold text-slate-800">{foundStudent.specialty}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Kurs:</span>
+                              <span className="font-extrabold text-slate-800">{foundStudent.course}-kurs</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Guruh:</span>
+                              <span className="font-extrabold text-slate-800">{foundStudent.group_name}</span>
+                            </div>
+                          </div>
+
+                          {/* Auto-filled Application Details */}
+                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-[11px] font-medium text-amber-800">
+                             <p className="font-bold mb-1">📋 Ariza formasi to'ldirildi:</p>
+                             <ul className="list-disc pl-4 space-y-0.5">
+                               <li>Bino: {dormName}</li>
+                               <li>Xona raqami: {selectedRoom.number}-xona</li>
+                               <li>Ariza turi: Yotoqxonaga joylashtirish (KIRISH)</li>
+                             </ul>
+                          </div>
+
                           <button 
                             onClick={handleAddRequest}
-                            className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs hover:bg-emerald-600 flex items-center justify-center gap-2 transition-all shadow-md"
+                            className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs hover:bg-emerald-600 flex items-center justify-center gap-2 transition-all shadow-md uppercase tracking-wider"
                           >
-                            <CheckCircle size={18}/> TALABANI TASDIQLASH
+                            <CheckCircle size={18}/> ARIZANI TOPSHIRISH
                           </button>
                         </div>
                       )}

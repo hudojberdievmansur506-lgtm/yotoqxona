@@ -16,6 +16,7 @@ export interface Student {
 
 export interface ArchivedStudent extends Student {
   exitDate: string;
+  exitDateTimestamp?: number;
   dormName: string;
 }
 
@@ -27,7 +28,9 @@ export interface AdminRequest {
   student: Student;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   createdAt: string;
+  createdAtTimestamp?: number;
   resolvedAt?: string;
+  resolvedAtTimestamp?: number;
   isReadByAdmin?: boolean;
 }
 

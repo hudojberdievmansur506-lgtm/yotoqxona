@@ -1,5 +1,6 @@
 {
   "name": "GDPI Yotoqxona Platformasi",
   "description": "Guliston davlat pedagogika instituti yotoqxonalari va talabalarni boshqarish tizimi. 2 ta yotoqxona, xonalar bandligi va statistikani kuzatish imkoniyati.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
