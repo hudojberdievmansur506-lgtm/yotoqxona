@@ -4,10 +4,10 @@
   publish = "dist"
   command = "npm run build"
 
-# 1. Proxy `/api/*` requests to the real backend ngrok URL to completely bypass CORS 
+# 1. Proxy `/api/*` requests to the real backend URL to completely bypass CORS 
 [[redirects]]
   from = "/api/*"
-  to = "https://king-dork-opulently.ngrok-free.dev/api/:splat"
+  to = "http://172.23.0.118:3003/api/:splat"
   status = 200
   force = true
 

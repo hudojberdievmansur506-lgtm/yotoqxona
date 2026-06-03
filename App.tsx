@@ -44,7 +44,7 @@ const getArchiveExitTime = (student: ArchivedStudent): number => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
-const API_BASE_URL = "https://king-dork-opulently.ngrok-free.dev/api";
+const API_BASE_URL = "http://172.23.0.118:3003/api";
 
 const safeFetch = async (url: string, options?: RequestInit): Promise<Response> => {
   const customHeaders = {
@@ -89,135 +89,117 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  const [dorms, setDorms] = useState<Dormitory[]>([]);
+  const [dorms, setDorms] = useState<Dormitory[]>([
+    { id: 1, name: "1-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) },
+    { id: 2, name: "2-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) },
+    { id: 3, name: "3-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
+  ]);
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [archive, setArchive] = useState<ArchivedStudent[]>([]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.dorms) {
-        parsed.dorms.forEach((d: any) => {
-          if (d.rooms) {
-            d.rooms.forEach((rm: any) => {
-              if (rm.students) {
-                rm.students.forEach((s: any) => {
-                  if (s && (s.course === null || s.course === undefined || isNaN(Number(s.course)))) {
-                    s.course = 1;
-                  } else if (s) {
-                    s.course = Number(s.course);
-                  }
-                });
-              }
-            });
-          }
-        });
+  const loadAllData = async () => {
+    try {
+      console.log("Loading all data from backend...");
+      
+      // 1. Fetch applications
+      const appsRes = await safeFetch(`${API_BASE_URL}/applications`);
+      if (!appsRes.ok) {
+        throw new Error(`Failed to load applications: status ${appsRes.status}`);
       }
-      if (parsed.requests) {
-        parsed.requests.forEach((req: any) => {
-          if (req?.student) {
-            if (req.student.course === null || req.student.course === undefined || isNaN(Number(req.student.course))) {
-              req.student.course = 1;
-            } else {
-              req.student.course = Number(req.student.course);
-            }
-          }
-        });
+      const appsData = await appsRes.json();
+      
+      let dbRequests: AdminRequest[] = [];
+      if (appsData && appsData.success && appsData.applications) {
+        dbRequests = appsData.applications.map((app: any) => ({
+          id: String(app.id),
+          type: app.type as 'ADD' | 'REMOVE',
+          dormId: Number(app.dorm_id),
+          roomNumber: Number(app.room_number),
+          student: {
+            id: String(app.id),
+            hemisId: String(app.student_id_number),
+            fullName: app.full_name || (app.student && app.student.full_name) || "",
+            course: parseInt(String(app.course || (app.student && app.student.course)).replace(/\D/g, '')) || 1,
+            group: app.group_name || (app.student && app.student.group_name) || "",
+            faculty: app.faculty || (app.student && app.student.faculty) || "",
+            direction: app.specialty || (app.student && app.student.specialty) || "",
+            imageUrl: app.image || (app.student && app.student.image) || `https://api.dicebear.com/9.x/avataaars/png?seed=${app.student_id_number}`,
+            joinedDate: app.created_at ? new Date(app.created_at).toLocaleString() : new Date().toLocaleString()
+          },
+          status: app.status as 'PENDING' | 'APPROVED' | 'REJECTED',
+          createdAt: app.created_at ? new Date(app.created_at).toLocaleString() : new Date().toLocaleString(),
+          createdAtTimestamp: app.created_at ? new Date(app.created_at).getTime() : Date.now(),
+          resolvedAt: app.resolved_at ? new Date(app.resolved_at).toLocaleString() : undefined,
+          resolvedAtTimestamp: app.resolved_at ? new Date(app.resolved_at).getTime() : undefined,
+          isReadByAdmin: false
+        }));
+        setRequests(dbRequests);
+
+        // Also build archive from APPROVED REMOVE requests!
+        const approvedRemoveRequests = dbRequests.filter(r => r.type === 'REMOVE' && r.status === 'APPROVED');
+        const computedArchive: ArchivedStudent[] = approvedRemoveRequests.map(r => ({
+          ...r.student,
+          exitDate: r.resolvedAt || r.createdAt,
+          exitDateTimestamp: r.resolvedAtTimestamp || r.createdAtTimestamp,
+          dormName: `${r.dormId}-Talabalar turar joyi`
+        }));
+        setArchive(computedArchive);
       }
-      if (parsed.archive) {
-        parsed.archive.forEach((s: any) => {
-          if (s && (s.course === null || s.course === undefined || isNaN(Number(s.course)))) {
-            s.course = 1;
-          } else if (s) {
-            s.course = Number(s.course);
-          }
-        });
+
+      // 2. Fetch ttj-students for room occupancy
+      const studentsRes = await safeFetch(`${API_BASE_URL}/ttj-students`);
+      if (!studentsRes.ok) {
+        throw new Error(`Failed to load ttj-students with status ${studentsRes.status}`);
       }
-      let loadedDorms = parsed.dorms || [];
-      if (loadedDorms.length < 3) {
-        // Upgrade legacy 2-dorm state to include 3-TTJ
-        loadedDorms = [
-          ...loadedDorms,
-          { id: 3, name: "3-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
-        ];
-      }
-      setDorms(loadedDorms);
-      setRequests(parsed.requests || []);
-      setArchive(parsed.archive || []);
-    } else {
-      setDorms([
+      const studentsData = await studentsRes.json();
+      const ttjStudentsList = Array.isArray(studentsData) ? studentsData : (studentsData.students || studentsData.ttj_students || []);
+
+      // Calculate room occupancy organically from the ttjStudentsList
+      const baseDorms = [
         { id: 1, name: "1-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) },
         { id: 2, name: "2-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) },
         { id: 3, name: "3-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
-      ]);
-    }
+      ];
 
-    // Persistently sync and load real-time applications from the external applications API
-    const loadApps = async () => {
-      try {
-        const res = await safeFetch(`${API_BASE_URL}/applications`);
-        if (!res.ok) {
-          throw new Error(`Failed to load applications with status ${res.status}`);
-        }
+      ttjStudentsList.forEach((item: any) => {
+        const dormId = Number(item.dorm_id);
+        const roomNumber = Number(item.room_number);
         
-        const data = await res.json();
-        if (data.success && data.applications) {
-          const dbRequests: AdminRequest[] = data.applications.map((app: any) => ({
-            id: app.id,
-            type: app.type as 'ADD' | 'REMOVE',
-            dormId: app.dorm_id,
-            roomNumber: app.room_number,
-            student: {
-              id: app.id,
-              hemisId: app.student_id_number,
-              fullName: app.full_name,
-              course: parseInt(String(app.course).replace(/\D/g, '')) || 1,
-              group: app.group_name,
-              faculty: app.faculty,
-              direction: app.specialty,
-              imageUrl: app.image,
-              joinedDate: new Date(app.created_at).toLocaleString()
-            },
-            status: app.status as 'PENDING' | 'APPROVED' | 'REJECTED',
-            createdAt: new Date(app.created_at).toLocaleString(),
-            createdAtTimestamp: new Date(app.created_at).getTime(),
-            resolvedAt: app.resolved_at ? new Date(app.resolved_at).toLocaleString() : undefined,
-            resolvedAtTimestamp: app.resolved_at ? new Date(app.resolved_at).getTime() : undefined,
-            isReadByAdmin: false
-          }));
-
-          setRequests(prev => {
-            const merged = [...prev];
-            dbRequests.forEach(dbReq => {
-              const idx = merged.findIndex(r => r.id === dbReq.id);
-              if (idx !== -1) {
-                merged[idx] = { 
-                  ...merged[idx], 
-                  status: dbReq.status, 
-                  resolvedAt: dbReq.resolvedAt,
-                  resolvedAtTimestamp: dbReq.resolvedAtTimestamp,
-                  createdAtTimestamp: dbReq.createdAtTimestamp
-                };
-              } else {
-                merged.unshift(dbReq);
+        const targetDorm = baseDorms.find(d => d.id === dormId);
+        if (targetDorm) {
+          const targetRoom = targetDorm.rooms.find(r => r.number === roomNumber);
+          if (targetRoom) {
+            const mappedStudent: Student = {
+              id: String(item.id || item.student_id_number || Math.random()),
+              hemisId: String(item.student_id_number),
+              fullName: item.full_name || "",
+              course: parseInt(String(item.course).replace(/\D/g, '')) || 1,
+              group: item.group_name || item.group || "",
+              faculty: item.faculty || "",
+              direction: item.specialty || item.direction || "",
+              imageUrl: item.image || `https://api.dicebear.com/9.x/avataaars/png?seed=${item.student_id_number}`,
+              joinedDate: item.created_at ? new Date(item.created_at).toLocaleString() : new Date().toLocaleString()
+            };
+            // Avoid duplicate additions
+            if (!targetRoom.students.some(s => s.hemisId === mappedStudent.hemisId)) {
+              if (targetRoom.students.length < 4) {
+                targetRoom.students.push(mappedStudent);
               }
-            });
-            return merged;
-          });
+            }
+          }
         }
-      } catch (err) {
-        console.log('Persistence loader failure:', err);
-      }
-    };
-    loadApps();
-  }, []);
+      });
+
+      setDorms(baseDorms);
+
+    } catch (err) {
+      console.error("loadAllData failed:", err);
+    }
+  };
 
   useEffect(() => {
-    if (dorms.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ dorms, requests, archive }));
-    }
-  }, [dorms, requests, archive]);
+    loadAllData();
+  }, []);
 
   // Admin sahifaga kirganda habarlarni o'qilgan deb belgilash
   useEffect(() => {
@@ -319,6 +301,57 @@ const App: React.FC = () => {
     return timeB - timeA;
   });
   const sortedArchive = [...archive].sort((a, b) => getArchiveExitTime(b) - getArchiveExitTime(a));
+
+  const handleUpdateRoom = async (dormId: number, num: number, student?: Student, removeId?: string) => {
+    if (removeId) {
+      // REMOVE type: we must POST to /api/applications with type "REMOVE"
+      const dorm = dorms.find(d => d.id === dormId);
+      const studentToRemove = dorm?.rooms.find(r => r.number === num)?.students.find(s => s.id === removeId);
+      
+      if (!studentToRemove) {
+        console.error("Student to remove not found in state:", removeId);
+        return;
+      }
+      
+      try {
+        const payload = {
+          student_id_number: String(studentToRemove.hemisId),
+          dorm_id: Number(dormId),
+          room_number: Number(num),
+          bed_number: 1, // default segment
+          type: 'REMOVE',
+          student: {
+            full_name: studentToRemove.fullName,
+            faculty: studentToRemove.faculty,
+            specialty: studentToRemove.direction,
+            course: String(studentToRemove.course || '1'),
+            group_name: studentToRemove.group,
+            image: studentToRemove.imageUrl || ""
+          }
+        };
+
+        const response = await safeFetch(`${API_BASE_URL}/applications`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to post REMOVE application");
+        }
+
+        notify("Chiqish arizasi super admin tasdiqlashi uchun yuborildi!");
+        await loadAllData();
+      } catch (err) {
+        console.error("Failed to submit REMOVE request:", err);
+        notify("Arizani yuborishda xatolik yuz berdi!");
+      }
+    } else {
+      // ADD request has already been POSTed by RoomGrid.tsx, we just refresh everything!
+      notify("Ariza muvaffaqiyatli yuborildi!");
+      await loadAllData();
+    }
+  };
 
   if (view === ViewState.LOGIN) {
     return (
@@ -432,24 +465,9 @@ const App: React.FC = () => {
 
         <main className="flex-1 overflow-auto p-8">
           {view === ViewState.DASHBOARD && <Dashboard dorms={dorms} isAdmin={currentUser !== 'GUEST'} />}
-          {view === ViewState.DORM1 && <RoomGrid rooms={dorms[0].rooms} dormName={dorms[0].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
-                const type = removeId ? 'REMOVE' : 'ADD';
-                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 1, roomNumber: num, student: student || dorms[0].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), createdAtTimestamp: Date.now(), isReadByAdmin: false };
-                setRequests(prev => [newRequest, ...prev]);
-                notify("So'rov yuborildi!");
-          }} />}
-          {view === ViewState.DORM2 && <RoomGrid rooms={dorms[1].rooms} dormName={dorms[1].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
-                const type = removeId ? 'REMOVE' : 'ADD';
-                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 2, roomNumber: num, student: student || dorms[1].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), createdAtTimestamp: Date.now(), isReadByAdmin: false };
-                setRequests(prev => [newRequest, ...prev]);
-                notify("So'rov yuborildi!");
-          }} />}
-          {view === ViewState.DORM3 && dorms[2] && <RoomGrid rooms={dorms[2].rooms} dormName={dorms[2].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
-                const type = removeId ? 'REMOVE' : 'ADD';
-                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 3, roomNumber: num, student: student || dorms[2].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), createdAtTimestamp: Date.now(), isReadByAdmin: false };
-                setRequests(prev => [newRequest, ...prev]);
-                notify("So'rov yuborildi!");
-          }} />}
+          {view === ViewState.DORM1 && <RoomGrid rooms={dorms[0].rooms} dormName={dorms[0].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => handleUpdateRoom(1, num, student, removeId)} />}
+          {view === ViewState.DORM2 && <RoomGrid rooms={dorms[1].rooms} dormName={dorms[1].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => handleUpdateRoom(2, num, student, removeId)} />}
+          {view === ViewState.DORM3 && dorms[2] && <RoomGrid rooms={dorms[2].rooms} dormName={dorms[2].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => handleUpdateRoom(3, num, student, removeId)} />}
           
           {view === ViewState.MY_REQUESTS && (
             <div className="max-w-4xl mx-auto space-y-4">
@@ -526,11 +544,12 @@ const App: React.FC = () => {
                                 if (!response.ok) {
                                   throw new Error("Failed to update status");
                                 }
+                                notify("Rad etildi!");
+                                await loadAllData();
                               } catch (err) {
                                 console.error("Status PUT rejected failed:", err);
+                                notify("Xatolik yuz berdi!");
                               }
-                              setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'REJECTED', resolvedAt: new Date().toLocaleString(), resolvedAtTimestamp: Date.now(), isReadByAdmin: false} : r));
-                              notify("Rad etildi!");
                           }} className="w-12 h-12 flex items-center justify-center bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><XCircle size={24}/></button>
                           
                           <button onClick={async () => {
@@ -544,15 +563,12 @@ const App: React.FC = () => {
                                 if (!response.ok) {
                                   throw new Error("Failed to update status");
                                 }
+                                notify("Bajarildi!");
+                                await loadAllData();
                               } catch (err) {
                                 console.error("Status PUT approved failed:", err);
+                                notify("Xatolik yuz berdi!");
                               }
-                              setDorms(ds => ds.map(d => d.id === req.dormId ? {...d, rooms: d.rooms.map(rm => rm.number === req.roomNumber ? {...rm, students: req.type === 'ADD' ? [...rm.students, req.student] : rm.students.filter(s => s.id !== req.student.id)} : rm)} : d));
-                              setRequests(prev => prev.map(r => r.id === req.id ? {...r, status: 'APPROVED', resolvedAt: new Date().toLocaleString(), resolvedAtTimestamp: Date.now(), isReadByAdmin: false} : r));
-                              if (req.type === 'REMOVE') {
-                                setArchive(prev => [{...req.student, exitDate: new Date().toLocaleString(), exitDateTimestamp: Date.now(), dormName: dorms.find(d => d.id === req.dormId)?.name || ''}, ...prev]);
-                              }
-                              notify("Bajarildi!");
                           }} className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all"><CheckCircle size={24}/></button>
                         </div>
                     </div>
@@ -592,8 +608,8 @@ const App: React.FC = () => {
                                       method: 'DELETE'
                                     });
                                     if (response.ok || response.status === 204) {
-                                      setRequests(prev => prev.filter(r => r.id !== req.id));
                                       notify("Ariza tarixdan o'chirildi!");
+                                      await loadAllData();
                                     } else {
                                       throw new Error("Failed to delete application");
                                     }

@@ -11,7 +11,7 @@ interface RoomGridProps {
   allDorms?: any[];
 }
 
-const API_BASE_URL = "https://king-dork-opulently.ngrok-free.dev/api";
+const API_BASE_URL = "http://172.23.0.118:3003/api";
 
 const safeFetch = async (url: string, options?: RequestInit): Promise<Response> => {
   const customHeaders = {
@@ -51,18 +51,9 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
   const [searching, setSearching] = useState(false);
   const [foundStudent, setFoundStudent] = useState<any>(null);
   const [error, setError] = useState('');
-  const [isManualMode, setIsManualMode] = useState(false);
 
   // Search form state
   const [studentIdInput, setStudentIdInput] = useState('');
-
-  // Manual form state
-  const [manualStudent, setManualStudent] = useState({
-    fullName: '',
-    group: '',
-    course: '1',
-    faculty: ''
-  });
 
   const searchFromApi = async () => {
     if (!studentIdInput.trim()) {
@@ -73,7 +64,6 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
     setSearching(true);
     setError('');
     setFoundStudent(null);
-    setIsManualMode(false);
 
     try {
       const response = await safeFetch(`${API_BASE_URL}/students/search/${studentIdInput.trim()}`);
@@ -121,19 +111,32 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
   const handleAddRequest = async () => {
     if (!selectedRoom) return;
 
+    if (selectedRoom.students.length >= 4) {
+      setError("Bu xona to'lgan! Maksimal 4 ta talaba joylashishi mumkin.");
+      return;
+    }
+
     let newStudent: Student;
 
     if (foundStudent) {
       try {
-        const dormId = dormName.includes("1") ? 1 : 2;
+        const dormId = dormName.includes("1") ? 1 : dormName.includes("2") ? 2 : 3;
 
         let res;
         const payload = {
-          student_id_number: foundStudent.student_id_number,
-          dorm_id: dormId,
-          room_number: selectedRoom.number,
+          student_id_number: String(foundStudent.student_id_number),
+          dorm_id: Number(dormId),
+          room_number: Number(selectedRoom.number),
+          bed_number: selectedRoom.students.length + 1,
           type: 'ADD',
-          student: foundStudent
+          student: {
+            full_name: foundStudent.full_name,
+            faculty: foundStudent.faculty,
+            specialty: foundStudent.specialty,
+            course: String(foundStudent.course),
+            group_name: foundStudent.group_name,
+            image: foundStudent.image || ""
+          }
         };
         try {
           res = await safeFetch(`${API_BASE_URL}/applications`, {
@@ -180,25 +183,6 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
         console.error("Failed to post application:", err);
         setError("Arizani yuborishda xatolik yuz berdi.");
       }
-    } else if (isManualMode) {
-      if (!manualStudent.fullName || !manualStudent.group) {
-        setError("Talaba ismi va guruhi majburiy!");
-        return;
-      }
-      newStudent = {
-        id: Math.random().toString(36).substr(2, 9),
-        hemisId: 'M-' + Date.now(),
-        fullName: manualStudent.fullName,
-        faculty: manualStudent.faculty || 'Noma\'lum',
-        direction: 'Qo\'lda kiritilgan',
-        course: parseInt(String(manualStudent.course).replace(/\D/g, '')) || 1,
-        group: manualStudent.group,
-        imageUrl: `https://api.dicebear.com/9.x/avataaars/png?seed=${manualStudent.fullName}`,
-        joinedDate: new Date().toLocaleString(),
-      };
-
-      onUpdateRoom(selectedRoom.number, newStudent);
-      resetState();
     }
   };
 
@@ -207,8 +191,6 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
     setStudentIdInput('');
     setSelectedRoom(null);
     setError('');
-    setIsManualMode(false);
-    setManualStudent({ fullName: '', group: '', course: '1', faculty: '' });
   };
 
   const exportDormToExcel = async () => {
@@ -323,143 +305,84 @@ const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateR
 
               {!isGuest && selectedRoom.students.length < 4 && (
                 <div className="mt-6 pt-6 border-t border-slate-100">
-                  {!isManualMode ? (
-                    <>
-                      <h4 className="font-black text-[10px] text-blue-600 uppercase mb-4 tracking-widest flex items-center gap-2">
-                        <ShieldCheck size={16}/> TALABALAR BAZASIDAN QIDIRUV
-                      </h4>
-                      
-                      <div className="space-y-3">
-                        <div className="relative">
-                          <input 
-                            placeholder="Talaba ID yoki JShShIR kiriting" 
-                            className="w-full p-4 pl-12 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold"
-                            value={studentIdInput}
-                            onChange={e => setStudentIdInput(e.target.value.replace(/\s/g, ''))}
-                          />
-                          <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        </div>
-
-                        <button 
-                          onClick={searchFromApi}
-                          disabled={searching}
-                          className="w-full bg-blue-600 text-white py-4 rounded-2xl hover:bg-blue-700 disabled:opacity-50 transition-all font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"
-                        >
-                          {searching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                          QIDIRISH
-                        </button>
-                      </div>
-
-                      {error && (
-                        <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl mt-4 animate-shake text-left">
-                           <div className="flex items-start gap-2 text-rose-600 text-[10px] font-black mb-3">
-                             <AlertCircle size={14} className="mt-0.5 flex-shrink-0" /> <span>{error}</span>
-                           </div>
-                           <button 
-                             onClick={() => { setIsManualMode(true); setError(''); }}
-                             className="w-full py-2.5 bg-white border border-rose-200 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-50 transition-colors flex items-center justify-center gap-2"
-                           >
-                             <UserPen size={14} /> Ma'lumotlarni qo'lda kiritish
-                           </button>
-                        </div>
-                      )}
-
-                      {foundStudent && (
-                        <div className="mt-4 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in slide-in-from-top-2 text-left space-y-4">
-                          <div className="flex items-start gap-4">
-                            <img src={foundStudent.image || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.student_id_number}`} className="w-16 h-16 rounded-2xl border bg-white object-cover shadow-sm"/>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-extrabold text-slate-900 text-base leading-tight uppercase truncate">{foundStudent.full_name}</p>
-                              <p className="text-[10px] font-black text-blue-600 tracking-wider uppercase mt-1">ID: {foundStudent.student_id_number}</p>
-                            </div>
-                          </div>
-                          
-                          {/* Auto-filled details in a grid */}
-                          <div className="bg-white p-4 rounded-xl border border-slate-100 grid grid-cols-2 gap-3 text-xs">
-                            <div className="col-span-2">
-                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Fakultet:</span>
-                              <span className="font-bold text-slate-800">{foundStudent.faculty}</span>
-                            </div>
-                            <div className="col-span-2">
-                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Yo'nalish / Mutaxassislik:</span>
-                              <span className="font-bold text-slate-800">{foundStudent.specialty}</span>
-                            </div>
-                            <div>
-                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Kurs:</span>
-                              <span className="font-extrabold text-slate-800">{foundStudent.course}-kurs</span>
-                            </div>
-                            <div>
-                              <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Guruh:</span>
-                              <span className="font-extrabold text-slate-800">{foundStudent.group_name}</span>
-                            </div>
-                          </div>
-
-                          {/* Auto-filled Application Details */}
-                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-[11px] font-medium text-amber-800">
-                             <p className="font-bold mb-1">📋 Ariza formasi to'ldirildi:</p>
-                             <ul className="list-disc pl-4 space-y-0.5">
-                               <li>Bino: {dormName}</li>
-                               <li>Xona raqami: {selectedRoom.number}-xona</li>
-                               <li>Ariza turi: Yotoqxonaga joylashtirish (KIRISH)</li>
-                             </ul>
-                          </div>
-
-                          <button 
-                            onClick={handleAddRequest}
-                            className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs hover:bg-emerald-600 flex items-center justify-center gap-2 transition-all shadow-md uppercase tracking-wider"
-                          >
-                            <CheckCircle size={18}/> ARIZANI TOPSHIRISH
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="space-y-4 animate-in slide-in-from-right-4 text-left">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-black text-[10px] text-amber-600 uppercase tracking-widest flex items-center gap-2">
-                          <UserPen size={16}/> QO'LDA KIRITISH
-                        </h4>
-                        <button onClick={() => setIsManualMode(false)} className="text-[10px] font-black text-slate-400 hover:text-slate-600 underline">Qidiruvga qaytish</button>
-                      </div>
-                      
+                  <h4 className="font-black text-[10px] text-blue-600 uppercase mb-4 tracking-widest flex items-center gap-2">
+                    <ShieldCheck size={16}/> TALABALAR BAZASIDAN QIDIRUV
+                  </h4>
+                  
+                  <div className="space-y-3">
+                    <div className="relative">
                       <input 
-                        placeholder="Talaba F.I.SH" 
-                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm"
-                        value={manualStudent.fullName}
-                        onChange={e => setManualStudent({...manualStudent, fullName: e.target.value})}
+                        placeholder="Talaba ID yoki JShShIR kiriting" 
+                        className="w-full p-4 pl-12 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-bold"
+                        value={studentIdInput}
+                        onChange={e => setStudentIdInput(e.target.value.replace(/\s/g, ''))}
                       />
+                      <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    </div>
+
+                    <button 
+                      onClick={searchFromApi}
+                      disabled={searching}
+                      className="w-full bg-blue-600 text-white py-4 rounded-2xl hover:bg-blue-700 disabled:opacity-50 transition-all font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      {searching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                      QIDIRISH
+                    </button>
+                  </div>
+
+                  {error && (
+                    <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl mt-4 animate-shake text-left">
+                       <div className="flex items-start gap-2 text-rose-600 text-[10px] font-black mb-0">
+                         <AlertCircle size={14} className="mt-0.5 flex-shrink-0" /> <span>{error}</span>
+                       </div>
+                    </div>
+                  )}
+
+                  {foundStudent && (
+                    <div className="mt-4 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in slide-in-from-top-2 text-left space-y-4">
+                      <div className="flex items-start gap-4">
+                        <img src={foundStudent.image || `https://api.dicebear.com/9.x/avataaars/png?seed=${foundStudent.student_id_number}`} className="w-16 h-16 rounded-2xl border bg-white object-cover shadow-sm"/>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-extrabold text-slate-900 text-base leading-tight uppercase truncate">{foundStudent.full_name}</p>
+                          <p className="text-[10px] font-black text-blue-600 tracking-wider uppercase mt-1">ID: {foundStudent.student_id_number}</p>
+                        </div>
+                      </div>
                       
-                      <div className="grid grid-cols-2 gap-3">
-                        <input 
-                          placeholder="Guruh (Masalan: 101)" 
-                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm"
-                          value={manualStudent.group}
-                          onChange={e => setManualStudent({...manualStudent, group: e.target.value})}
-                        />
-                        <select 
-                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm appearance-none"
-                          value={manualStudent.course}
-                          onChange={e => setManualStudent({...manualStudent, course: e.target.value})}
-                        >
-                          <option value="1">1-kurs</option>
-                          <option value="2">2-kurs</option>
-                          <option value="3">3-kurs</option>
-                          <option value="4">4-kurs</option>
-                        </select>
+                      {/* Auto-filled details in a grid */}
+                      <div className="bg-white p-4 rounded-xl border border-slate-100 grid grid-cols-2 gap-3 text-xs">
+                        <div className="col-span-2">
+                          <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Fakultet:</span>
+                          <span className="font-bold text-slate-800">{foundStudent.faculty}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Yo'nalish / Mutaxassislik:</span>
+                          <span className="font-bold text-slate-800">{foundStudent.specialty}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Kurs:</span>
+                          <span className="font-extrabold text-slate-800">{foundStudent.course}-kurs</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Guruh:</span>
+                          <span className="font-extrabold text-slate-800">{foundStudent.group_name}</span>
+                        </div>
                       </div>
 
-                      <input 
-                        placeholder="Fakultet nomi" 
-                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-amber-500 font-bold text-sm"
-                        value={manualStudent.faculty}
-                        onChange={e => setManualStudent({...manualStudent, faculty: e.target.value})}
-                      />
+                      {/* Auto-filled Application Details */}
+                      <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-[11px] font-medium text-amber-800">
+                         <p className="font-bold mb-1">📋 Ariza formasi to'ldirildi:</p>
+                         <ul className="list-disc pl-4 space-y-0.5">
+                           <li>Bino: {dormName}</li>
+                           <li>Xona raqami: {selectedRoom.number}-xona</li>
+                           <li>Ariza turi: Yotoqxonaga joylashtirish (KIRISH)</li>
+                         </ul>
+                      </div>
 
                       <button 
                         onClick={handleAddRequest}
-                        className="w-full py-4 bg-amber-500 text-white rounded-2xl font-black text-xs hover:bg-amber-600 shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                        className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs hover:bg-emerald-600 flex items-center justify-center gap-2 transition-all shadow-md uppercase tracking-wider"
                       >
-                        <CheckCircle size={18}/> RO'YXATGA QO'SHISH
+                        <CheckCircle size={18}/> ARIZANI TOPSHIRISH
                       </button>
                     </div>
                   )}

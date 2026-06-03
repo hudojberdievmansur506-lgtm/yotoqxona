@@ -4,7 +4,7 @@ import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 
 const PORT = 3000;
-const EXTERNAL_API_BASE = 'https://king-dork-opulently.ngrok-free.dev/api';
+const EXTERNAL_API_BASE = 'http://172.23.0.118:3003/api';
 
 async function startServer() {
   const app = express();
@@ -21,6 +21,37 @@ async function startServer() {
       externalApiBase: EXTERNAL_API_BASE,
       database: 'bypassed'
     });
+  });
+
+  // Proxy for ttj-students
+  app.get('/api/ttj-students', async (req, res) => {
+    console.log('GET /api/ttj-students forwarding to external API');
+    try {
+      const response = await fetch(`${EXTERNAL_API_BASE}/ttj-students`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          success: false,
+          message: `Ubuntu API returned status: ${response.status}`
+        });
+      }
+
+      const data = await response.json();
+      return res.json(data);
+    } catch (err: any) {
+      console.error('Error fetching ttj-students from external API:', err.message || err);
+      return res.status(500).json({
+        success: false,
+        message: 'Talabalar ro‘yxatini yuklashda xatolik yuz berdi'
+      });
+    }
   });
 
   // Proxy/Fallback for student search
