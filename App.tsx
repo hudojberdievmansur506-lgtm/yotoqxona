@@ -13,7 +13,8 @@ const STORAGE_KEY = 'gdpi_dorm_system_v2';
 const ADMIN_CREDENTIALS: Record<string, string> = {
   'SUPER_ADMIN': 'admin777',
   'DORM1_ADMIN': 'ttj1_pass',
-  'DORM2_ADMIN': 'ttj2_pass'
+  'DORM2_ADMIN': 'ttj2_pass',
+  'DORM3_ADMIN': 'ttj3_pass'
 };
 
 const getRequestCreatedAtTime = (req: AdminRequest): number => {
@@ -46,24 +47,36 @@ const getArchiveExitTime = (student: ArchivedStudent): number => {
 const API_BASE_URL = "https://king-dork-opulently.ngrok-free.dev/api";
 
 const safeFetch = async (url: string, options?: RequestInit): Promise<Response> => {
-  try {
-    const res = await fetch(url, options);
-    if (res.ok) return res;
-    if (url.startsWith(API_BASE_URL)) {
-      const fallbackUrl = url.replace(API_BASE_URL, '/api');
-      console.warn(`Direct fetch to ${url} returned status ${res.status}. Trying secure local custom proxy fallback to ${fallbackUrl}...`);
-      const fallbackRes = await fetch(fallbackUrl, options);
-      return fallbackRes;
+  const customHeaders = {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+    ...(options?.headers || {})
+  };
+  const finalOptions = {
+    ...options,
+    headers: customHeaders
+  };
+
+  const res = await fetch(url, finalOptions);
+
+  // Intercept response json parse to secure correct warning output for HTML/NGROK responses
+  const originalJson = res.json.bind(res);
+  res.json = async () => {
+    const text = await res.text();
+    const isHtml = text.trim().startsWith('<');
+    if (isHtml) {
+      console.error(`Xatolik: JSON kutilgan edi, lekin HTML formatidagi javob keldi (Status: ${res.status}). Javob:`, text);
+      throw new Error(`Kutilmagan HTML javob keldi (Status: ${res.status})`);
     }
-    return res;
-  } catch (err) {
-    console.warn(`Direct fetch to ${url} failed. Trying secure local custom proxy fallback...`, err);
-    if (url.startsWith(API_BASE_URL)) {
-      const fallbackUrl = url.replace(API_BASE_URL, '/api');
-      return await fetch(fallbackUrl, options);
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      console.error("JSON parselashda xatolik:", err, "Asl javob:", text);
+      throw err;
     }
-    throw err;
-  }
+  };
+
+  return res;
 };
 
 const App: React.FC = () => {
@@ -121,13 +134,22 @@ const App: React.FC = () => {
           }
         });
       }
-      setDorms(parsed.dorms);
+      let loadedDorms = parsed.dorms || [];
+      if (loadedDorms.length < 3) {
+        // Upgrade legacy 2-dorm state to include 3-TTJ
+        loadedDorms = [
+          ...loadedDorms,
+          { id: 3, name: "3-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
+        ];
+      }
+      setDorms(loadedDorms);
       setRequests(parsed.requests || []);
       setArchive(parsed.archive || []);
     } else {
       setDorms([
         { id: 1, name: "1-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) },
-        { id: 2, name: "2-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
+        { id: 2, name: "2-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) },
+        { id: 3, name: "3-Talabalar turar joyi", totalRooms: 100, rooms: Array.from({length: 100}, (_, i) => ({ number: i + 1, capacity: 4, students: [] })) }
       ]);
     }
 
@@ -199,8 +221,8 @@ const App: React.FC = () => {
 
   // Admin sahifaga kirganda habarlarni o'qilgan deb belgilash
   useEffect(() => {
-    if (view === ViewState.MY_REQUESTS && (currentUser === 'DORM1_ADMIN' || currentUser === 'DORM2_ADMIN')) {
-      const dormId = currentUser === 'DORM1_ADMIN' ? 1 : 2;
+    if (view === ViewState.MY_REQUESTS && (currentUser === 'DORM1_ADMIN' || currentUser === 'DORM2_ADMIN' || currentUser === 'DORM3_ADMIN')) {
+      const dormId = currentUser === 'DORM1_ADMIN' ? 1 : currentUser === 'DORM2_ADMIN' ? 2 : 3;
       setRequests(prev => prev.map(req => 
         (req.dormId === dormId && req.status !== 'PENDING' && !req.isReadByAdmin) 
           ? { ...req, isReadByAdmin: true } 
@@ -230,6 +252,7 @@ const App: React.FC = () => {
       setCurrentUser(selectedRole);
       if (selectedRole === 'DORM1_ADMIN') setView(ViewState.DORM1);
       else if (selectedRole === 'DORM2_ADMIN') setView(ViewState.DORM2);
+      else if (selectedRole === 'DORM3_ADMIN') setView(ViewState.DORM3);
       else setView(ViewState.DASHBOARD);
       setPassword('');
     } else {
@@ -249,6 +272,7 @@ const App: React.FC = () => {
       case 'SUPER_ADMIN': return 'SUPER ADMIN';
       case 'DORM1_ADMIN': return 'TTJ1 ADMIN';
       case 'DORM2_ADMIN': return 'TTJ2 ADMIN';
+      case 'DORM3_ADMIN': return 'TTJ3 ADMIN';
       case 'GUEST': return 'GUEST';
       default: return role;
     }
@@ -275,10 +299,15 @@ const App: React.FC = () => {
     if (currentUser === 'SUPER_ADMIN') return requests.filter(r => r.status === 'PENDING').length;
     if (currentUser === 'DORM1_ADMIN') return requests.filter(r => r.dormId === 1 && r.status !== 'PENDING' && !r.isReadByAdmin).length;
     if (currentUser === 'DORM2_ADMIN') return requests.filter(r => r.dormId === 2 && r.status !== 'PENDING' && !r.isReadByAdmin).length;
+    if (currentUser === 'DORM3_ADMIN') return requests.filter(r => r.dormId === 3 && r.status !== 'PENDING' && !r.isReadByAdmin).length;
     return 0;
   };
 
-  const myRequests = requests.filter(r => (currentUser === 'DORM1_ADMIN' && r.dormId === 1) || (currentUser === 'DORM2_ADMIN' && r.dormId === 2));
+  const myRequests = requests.filter(r => 
+    (currentUser === 'DORM1_ADMIN' && r.dormId === 1) || 
+    (currentUser === 'DORM2_ADMIN' && r.dormId === 2) ||
+    (currentUser === 'DORM3_ADMIN' && r.dormId === 3)
+  );
   const pendingRequests = requests.filter(r => r.status === 'PENDING');
   const resolvedRequests = requests.filter(r => r.status !== 'PENDING');
 
@@ -307,7 +336,7 @@ const App: React.FC = () => {
             <div>
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Rolingizni tanlang</label>
               <div className="grid grid-cols-2 gap-3">
-                {(['SUPER_ADMIN', 'DORM1_ADMIN', 'DORM2_ADMIN', 'GUEST'] as UserRole[]).map(role => (
+                {(['SUPER_ADMIN', 'DORM1_ADMIN', 'DORM2_ADMIN', 'DORM3_ADMIN', 'GUEST'] as UserRole[]).map(role => (
                   <button 
                     key={role} 
                     type="button"
@@ -363,6 +392,7 @@ const App: React.FC = () => {
           {(currentUser === 'SUPER_ADMIN' || currentUser === 'GUEST') && <SidebarItem viewState={ViewState.DASHBOARD} icon={LayoutDashboard} label="Statistika" />}
           {(currentUser === 'SUPER_ADMIN' || currentUser === 'GUEST' || currentUser === 'DORM1_ADMIN') && <SidebarItem viewState={ViewState.DORM1} icon={Building2} label="1-TTJ Binosi" />}
           {(currentUser === 'SUPER_ADMIN' || currentUser === 'GUEST' || currentUser === 'DORM2_ADMIN') && <SidebarItem viewState={ViewState.DORM2} icon={Building2} label="2-TTJ Binosi" />}
+          {(currentUser === 'SUPER_ADMIN' || currentUser === 'GUEST' || currentUser === 'DORM3_ADMIN') && <SidebarItem viewState={ViewState.DORM3} icon={Building2} label="3-TTJ Binosi" />}
           
           {currentUser === 'SUPER_ADMIN' && (
             <>
@@ -372,7 +402,7 @@ const App: React.FC = () => {
             </>
           )}
 
-          {(currentUser === 'DORM1_ADMIN' || currentUser === 'DORM2_ADMIN') && (
+          {(currentUser === 'DORM1_ADMIN' || currentUser === 'DORM2_ADMIN' || currentUser === 'DORM3_ADMIN') && (
             <>
               <div className="my-4 border-t border-slate-100"></div>
               <SidebarItem viewState={ViewState.MY_REQUESTS} icon={MessageSquare} label="Habarlar" badgeCount={getNotificationsCount()} />
@@ -395,7 +425,7 @@ const App: React.FC = () => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-8 py-5 flex justify-between items-center z-10">
           <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">
-            {view === ViewState.DORM1 ? 'DORM1' : view === ViewState.DORM2 ? 'DORM2' : view.replace('_', ' ')}
+            {view === ViewState.DORM1 ? 'DORM1' : view === ViewState.DORM2 ? 'DORM2' : view === ViewState.DORM3 ? 'DORM3' : view.replace('_', ' ')}
           </h2>
           <div className="px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black tracking-widest border border-blue-100 uppercase">Live Monitoring</div>
         </header>
@@ -411,6 +441,12 @@ const App: React.FC = () => {
           {view === ViewState.DORM2 && <RoomGrid rooms={dorms[1].rooms} dormName={dorms[1].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
                 const type = removeId ? 'REMOVE' : 'ADD';
                 const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 2, roomNumber: num, student: student || dorms[1].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), createdAtTimestamp: Date.now(), isReadByAdmin: false };
+                setRequests(prev => [newRequest, ...prev]);
+                notify("So'rov yuborildi!");
+          }} />}
+          {view === ViewState.DORM3 && dorms[2] && <RoomGrid rooms={dorms[2].rooms} dormName={dorms[2].name} isGuest={currentUser === 'GUEST'} allDorms={dorms} onUpdateRoom={(num, student, removeId) => {
+                const type = removeId ? 'REMOVE' : 'ADD';
+                const newRequest: AdminRequest = { id: Math.random().toString(36).substr(2, 9), type, dormId: 3, roomNumber: num, student: student || dorms[2].rooms.find(r => r.number === num)?.students.find(s => s.id === removeId)!, status: 'PENDING', createdAt: new Date().toLocaleString(), createdAtTimestamp: Date.now(), isReadByAdmin: false };
                 setRequests(prev => [newRequest, ...prev]);
                 notify("So'rov yuborildi!");
           }} />}

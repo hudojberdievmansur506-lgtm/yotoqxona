@@ -14,24 +14,36 @@ interface RoomGridProps {
 const API_BASE_URL = "https://king-dork-opulently.ngrok-free.dev/api";
 
 const safeFetch = async (url: string, options?: RequestInit): Promise<Response> => {
-  try {
-    const res = await fetch(url, options);
-    if (res.ok) return res;
-    if (url.startsWith(API_BASE_URL)) {
-      const fallbackUrl = url.replace(API_BASE_URL, '/api');
-      console.warn(`Direct fetch to ${url} returned status ${res.status}. Trying secure local custom proxy fallback to ${fallbackUrl}...`);
-      const fallbackRes = await fetch(fallbackUrl, options);
-      return fallbackRes;
+  const customHeaders = {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+    ...(options?.headers || {})
+  };
+  const finalOptions = {
+    ...options,
+    headers: customHeaders
+  };
+
+  const res = await fetch(url, finalOptions);
+
+  // Intercept response json parse to secure correct warning output for HTML/NGROK responses
+  const originalJson = res.json.bind(res);
+  res.json = async () => {
+    const text = await res.text();
+    const isHtml = text.trim().startsWith('<');
+    if (isHtml) {
+      console.error(`Xatolik: JSON kutilgan edi, lekin HTML formatidagi javob keldi (Status: ${res.status}). Javob:`, text);
+      throw new Error(`Kutilmagan HTML javob keldi (Status: ${res.status})`);
     }
-    return res;
-  } catch (err) {
-    console.warn(`Direct fetch to ${url} failed. Trying secure local custom proxy fallback...`, err);
-    if (url.startsWith(API_BASE_URL)) {
-      const fallbackUrl = url.replace(API_BASE_URL, '/api');
-      return await fetch(fallbackUrl, options);
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      console.error("JSON parselashda xatolik:", err, "Asl javob:", text);
+      throw err;
     }
-    throw err;
-  }
+  };
+
+  return res;
 };
 
 const RoomGrid: React.FC<RoomGridProps> = ({ rooms, dormName, isGuest, onUpdateRoom, allDorms }) => {

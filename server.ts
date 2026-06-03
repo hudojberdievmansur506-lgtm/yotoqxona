@@ -33,6 +33,8 @@ async function startServer() {
       const response = await fetch(`${EXTERNAL_API_BASE}/students/search/${cleanId}`, {
         method: 'GET',
         headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Accept': 'application/json'
         }
       });
@@ -62,6 +64,8 @@ async function startServer() {
       const response = await fetch(`${EXTERNAL_API_BASE}/applications`, {
         method: 'GET',
         headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Accept': 'application/json'
         }
       });
@@ -92,6 +96,7 @@ async function startServer() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Accept': 'application/json'
         },
         body: JSON.stringify(req.body)
@@ -117,6 +122,7 @@ async function startServer() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Accept': 'application/json'
         },
         body: JSON.stringify(req.body)
@@ -141,6 +147,8 @@ async function startServer() {
       const response = await fetch(`${EXTERNAL_API_BASE}/applications/${id}`, {
         method: 'DELETE',
         headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'Accept': 'application/json'
         }
       });

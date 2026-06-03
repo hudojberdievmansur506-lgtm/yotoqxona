@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type UserRole = 'SUPER_ADMIN' | 'DORM1_ADMIN' | 'DORM2_ADMIN' | 'GUEST';
+export type UserRole = 'SUPER_ADMIN' | 'DORM1_ADMIN' | 'DORM2_ADMIN' | 'DORM3_ADMIN' | 'GUEST';
 
 export interface Student {
   id: string; // Tizim ichki ID si
@@ -52,6 +52,7 @@ export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   DORM1 = 'DORM1',
   DORM2 = 'DORM2',
+  DORM3 = 'DORM3',
   AI_ASSISTANT = 'AI_ASSISTANT',
   REQUESTS = 'REQUESTS',
   ARCHIVE = 'ARCHIVE',
